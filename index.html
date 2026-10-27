@@ -12,27 +12,22 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" defer></script>
-  <script src="https://unpkg.com/mqtt@5.10.4/dist/mqtt.min.js" defer></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
 <div id="login-overlay" class="auth-overlay">
   <div class="login-card">
-    <!-- DIUBAH: Logo AnggrekSense dan login cukup password -->
     <img class="login-logo" src="logo-anggreksense.png" alt="AnggrekSense" />
-    <p>Dashboard penelitian suhu dan kelembapan tanaman anggrek.</p>
     <form id="login-form">
-      <label for="login-password">Password Dashboard</label>
-      <input id="login-password" required type="password" placeholder="Masukkan password website" autocomplete="current-password" />
-      <button class="primary-btn full" type="submit">Masuk ke Dashboard</button>
+      <label for="login-password">Password</label>
+      <input id="login-password" required type="password" placeholder="Masukkan password" autocomplete="current-password" />
+      <button class="primary-btn full" type="submit">Masuk</button>
     </form>
     <div id="login-error" class="form-error" role="alert"></div>
-    <small>Cukup password website. Pengaturan akses disimpan aman di Vercel.</small>
   </div>
 </div>
 <div class="shell">
   <aside class="sidebar">
-    <!-- DIUBAH: Brand memakai logo AnggrekSense, tanpa tagline -->
     <div class="brand"><span class="brand-mark"><img src="icon-anggreksense.png" alt="" /></span><div><b>AnggrekSense</b></div></div>
     <div class="nav-label">MENU UTAMA</div>
     <button class="nav-item active" data-page="dashboard"><span class="nav-icon">▦</span><span>Dashboard</span></button>
@@ -66,8 +61,17 @@
       </section>
       <section class="page" id="page-device">
         <div class="section-heading"><div><span class="eyebrow">INFORMASI TEKNIS</span><h2>Informasi Perangkat</h2><p>Arsitektur dan parameter sistem monitoring.</p></div></div>
-        <div class="info-cards"><article class="panel info-panel"><h3>Perangkat Keras</h3><div class="status-list"><div><span>Mikrokontroler</span><b>ESP32 DevKit</b></div><div><span>Sensor</span><b>SHT30</b></div><div><span>SDA</span><b>GPIO 21</b></div><div><span>SCL</span><b>GPIO 22</b></div><div><span>VCC</span><b>3.3 V</b></div><div><span>Alamat I²C</span><b>0x44 / 0x45</b></div></div></article><article class="panel info-panel"><h3>Komunikasi & Penyimpanan</h3><div class="status-list"><div><span>Live</span><b>EMQX MQTT TLS</b></div><div><span>Port MQTT</span><b>8883</b></div><div><span>Dashboard MQTT</span><b>WSS 8084 (opsional)</b></div><div><span>Database</span><b>Firebase Realtime DB</b></div><div><span>Log mentah</span><b>60 detik</b></div><div><span>Agregasi bulanan</span><b>Rata-rata per jam</b></div></div></article></div>
-        <article class="panel info-panel"><h3>Koneksi MQTT dari Browser (Opsional)</h3><p class="soft-copy">Secara default dashboard menampilkan data terkini dari Firebase. Jika ingin menerima pesan MQTT setiap 5 detik, masukkan kredensial <b>read-only</b> EMQX khusus dashboard. Username dan password hanya disimpan selama tab dibuka.</p><div class="inline-form"><label>Username MQTT<input id="mqtt-user" type="text" autocomplete="off" placeholder="viewer_anggrek" /></label><label>Password MQTT<input id="mqtt-pass" type="password" autocomplete="off" placeholder="Password EMQX" /></label><button class="primary-btn" id="mqtt-connect">Sambungkan MQTT</button><button class="small-btn" id="mqtt-disconnect">Putuskan</button></div><p class="footnote" id="mqtt-info">Isi MQTT_WSS_URL di config.js dahulu. Jangan gunakan kredensial admin EMQX.</p></article>
+        <div class="info-cards"><article class="panel info-panel"><h3>Perangkat Keras</h3><div class="status-list"><div><span>Mikrokontroler</span><b>ESP32 DevKit</b></div><div><span>Sensor</span><b>SHT30</b></div><div><span>SDA</span><b>GPIO 21</b></div><div><span>SCL</span><b>GPIO 22</b></div><div><span>VCC</span><b>3.3 V</b></div><div><span>Alamat I²C</span><b>0x44 / 0x45</b></div></div></article><article class="panel info-panel"><h3>Komunikasi & Penyimpanan</h3><div class="status-list"><div><span>Live</span><b>EMQX MQTT TLS</b></div><div><span>Port MQTT</span><b>8883</b></div><div><span>Dashboard MQTT</span><b>Vercel WebSocket → MQTT TLS 8883</b></div><div><span>Database</span><b>Firebase Realtime DB</b></div><div><span>Log mentah</span><b>60 detik</b></div><div><span>Agregasi bulanan</span><b>Rata-rata per jam</b></div></div></article></div>
+        <!-- DIUBAH: MQTT tersambung otomatis melalui backend Vercel tanpa username/password di browser. -->
+        <article class="panel info-panel">
+          <h3>Koneksi MQTT Otomatis</h3>
+          <p class="soft-copy">MQTT terhubung melalui server Vercel setelah login website. Password EMQX tidak dikirim ke browser.</p>
+          <div class="inline-form">
+            <button class="primary-btn" id="mqtt-connect">Sambungkan Ulang</button>
+            <button class="small-btn" id="mqtt-disconnect">Putuskan</button>
+          </div>
+          <p class="footnote" id="mqtt-info" role="status">Menghubungkan setelah login...</p>
+        </article>
       </section>
       <section class="page" id="page-storage">
         <div class="section-heading"><div><span class="eyebrow">DATA MAINTENANCE</span><h2>Backup & Penyimpanan</h2><p>Backup dan pembersihan manual supaya tetap hemat paket gratis.</p></div></div>

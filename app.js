@@ -1,7 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import { getDatabase, ref, onValue, get, query, orderByChild, startAt, endAt, remove } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js';
-import { FIREBASE_CONFIG, DEVICE_ID, MQTT_WSS_URL, MQTT_TOPIC } from './config.js';
+import { FIREBASE_CONFIG, DEVICE_ID } from './config.js';
 
 const $ = id => document.getElementById(id);
 const BASE = `devices/${DEVICE_ID}`;
@@ -9,7 +9,7 @@ const WIB = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day:'2-
 const SHORT_WIB = new Intl.DateTimeFormat('id-ID', { timeZone:'Asia/Jakarta', day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit' });
 const PERIODS = {'1h':3600000,'6h':21600000,'24h':86400000,'30d':2592000000};
 const PER_PAGE = 50;
-const state = { page:'dashboard', dashboardPeriod:'1h', historyPeriod:'24h', historyPage:0, dashboardRows:[], historyRows:[], latest:null, mqttLast:null, mqttOnline:false, firebaseOnline:false, mqttClient:null, unsubLatest:null, auth:null, db:null, chartDashboard:null, chartHistory:null, backupMonth:'' };
+const state = { page:'dashboard', dashboardPeriod:'1h', historyPeriod:'24h', historyPage:0, dashboardRows:[], historyRows:[], latest:null, mqttLast:null, mqttOnline:false, firebaseOnline:false, liveSocket:null, liveReconnect:null, liveGeneration:0, liveRetry:0, wantLive:false, unsubLatest:null, auth:null, db:null, chartDashboard:null, chartHistory:null, backupMonth:'' };
 
 function formatTime(ms,short=false){return Number.isFinite(Number(ms)) && Number(ms)>0 ? (short?SHORT_WIB:WIB).format(new Date(Number(ms))) : '—';}
 function fmt(v){return Number.isFinite(Number(v)) ? Number(v).toFixed(2) : '--';}
@@ -207,30 +207,95 @@ async function cleanupMonth(){
   }catch(e){toast('Penghapusan gagal: '+e.message,true);}
 }
 
-function connectMQTT(){
-  if(!MQTT_WSS_URL)return toast('Isi MQTT_WSS_URL di file dashboard/config.js terlebih dahulu.',true);
-  if(!window.mqtt)return toast('mqtt.js gagal dimuat (periksa koneksi internet).',true);
-  const username=$('mqtt-user').value.trim(),password=$('mqtt-pass').value;
-  if(!username||!password)return toast('Isi username dan password MQTT khusus dashboard.',true);
-  disconnectMQTT();
-  const client=window.mqtt.connect(MQTT_WSS_URL,{clientId:`anggrek-web-${Math.random().toString(16).slice(2)}`,username,password,clean:true,reconnectPeriod:5000,connectTimeout:8000});
-  state.mqttClient=client;
-  client.on('connect',()=>{state.mqttOnline=true;client.subscribe(MQTT_TOPIC);$('mqtt-info').textContent=`Terhubung MQTT WSS. Subscribe: ${MQTT_TOPIC}`;updateConnectivity();});
-  client.on('close',()=>{state.mqttOnline=false;updateConnectivity();});
-  client.on('error',e=>{$('mqtt-info').textContent='MQTT: '+e.message;state.mqttOnline=false;updateConnectivity();});
-  client.on('message',(topic,payload)=>{
-    if(topic!==MQTT_TOPIC)return;
-    try{const row=JSON.parse(payload.toString());if(row.device_id!==DEVICE_ID||!validReading(row))return;state.mqttLast=cleanRow(row,'MQTT');applyLive();}catch(e){console.warn('Pesan MQTT tidak valid',e);}
-  });
+// BARU: browser memakai WebSocket milik Vercel, bukan EMQX langsung.
+// Tidak ada MQTT username/password atau secret dalam kode frontend.
+function setLiveInfo(message){$('mqtt-info').textContent=message;}
+function updateLiveStatus(connected,message){
+  state.mqttOnline=Boolean(connected);
+  if(message)setLiveInfo(message);
+  updateConnectivity();
 }
-function disconnectMQTT(){
-  if(state.mqttClient){state.mqttClient.end(true);state.mqttClient=null;}
-  state.mqttOnline=false;state.mqttLast=null;updateConnectivity();
+function disconnectMQTT(showMessage=true){
+  state.wantLive=false;
+  state.liveGeneration++;
+  clearTimeout(state.liveReconnect);
+  state.liveReconnect=null;
+  const old=state.liveSocket;
+  state.liveSocket=null;
+  if(old){try{old.close(1000,'Disconnect');}catch{}}
+  state.liveRetry=0;
+  state.mqttLast=null;
+  updateLiveStatus(false,showMessage?'MQTT diputuskan. Klik Sambungkan Ulang.':null);
+}
+function scheduleLiveReconnect(){
+  if(!state.wantLive || !state.auth?.currentUser || state.liveReconnect)return;
+  const delay=Math.min(15000,1000*Math.pow(2,Math.min(state.liveRetry++,4)));
+  setLiveInfo(`Koneksi terputus. Menyambung ulang dalam ${Math.ceil(delay/1000)} detik...`);
+  state.liveReconnect=setTimeout(()=>{
+    state.liveReconnect=null;
+    connectMQTT();
+  },delay);
+}
+async function connectMQTT(){
+  if(!state.auth?.currentUser)return;
+  state.wantLive=true;
+  clearTimeout(state.liveReconnect);
+  state.liveReconnect=null;
+  const attempt=++state.liveGeneration;
+  const prev=state.liveSocket;
+  state.liveSocket=null;
+  if(prev)try{prev.close(1000,'Reconnect');}catch{}
+  updateLiveStatus(false,'Memverifikasi sesi website...');
+  try{
+    const firebaseIdToken=await state.auth.currentUser.getIdToken();
+    if(attempt!==state.liveGeneration||!state.wantLive)return;
+    const scheme=location.protocol==='https:'?'wss:':'ws:';
+    const socket=new WebSocket(`${scheme}//${location.host}/api/live`);
+    state.liveSocket=socket;
+    socket.addEventListener('open',()=>{
+      if(state.liveSocket!==socket)return;
+      socket.send(JSON.stringify({type:'auth',token:firebaseIdToken}));
+      setLiveInfo('Menunggu koneksi Vercel → EMQX...');
+    });
+    socket.addEventListener('message',event=>{
+      if(state.liveSocket!==socket)return;
+      let msg;try{msg=JSON.parse(event.data);}catch{return;}
+      if(msg.type==='status'){
+        updateLiveStatus(msg.connected,msg.detail || (msg.connected?'MQTT terhubung.':'MQTT belum terhubung.'));
+        if(msg.connected)state.liveRetry=0;
+      }else if(msg.type==='reading' && validReading(msg.data)){
+        if(msg.data.device_id && msg.data.device_id!==DEVICE_ID)return;
+        state.mqttLast=cleanRow(msg.data,'MQTT');
+        applyLive();
+      }else if(msg.type==='error'){
+        updateLiveStatus(false,msg.message || 'Gagal terhubung.');
+        if(msg.fatal){
+          state.wantLive=false;
+          toast('MQTT: '+(msg.message||'Konfigurasi server gagal.'),true);
+          socket.close();
+        }
+      }
+    });
+    socket.addEventListener('error',()=>{
+      if(state.liveSocket===socket)updateLiveStatus(false,'WebSocket Vercel gagal. Periksa Deployment Logs.');
+    });
+    socket.addEventListener('close',()=>{
+      if(state.liveSocket!==socket)return;
+      state.liveSocket=null;
+      updateLiveStatus(false);
+      scheduleLiveReconnect();
+    });
+  }catch(error){
+    if(attempt!==state.liveGeneration)return;
+    updateLiveStatus(false,'Gagal membuka sesi: '+error.message);
+    scheduleLiveReconnect();
+  }
 }
 
 async function startAfterLogin(user){
   $('login-overlay').classList.add('hidden');$('user-email').textContent='Dashboard';
   subscribeLatest();
+  connectMQTT(); // BARU: otomatis begitu login berhasil, tanpa menunggu grafik selesai.
   if(!state.chartDashboard)state.chartDashboard=makeChart($('sensor-chart'));
   if(!state.chartHistory)state.chartHistory=makeChart($('history-chart'));
   await refreshDashboard();
@@ -259,8 +324,8 @@ function setupUI(){
   $('cleanup-month').addEventListener('click',cleanupMonth);
   $('archive-month').value=new Date().toISOString().slice(0,7);
   $('archive-month').addEventListener('change',()=>{state.backupMonth='';$('archive-info').textContent='Bulan berubah. Silakan backup lagi sebelum penghapusan.';});
-  $('mqtt-connect').addEventListener('click',connectMQTT);
-  $('mqtt-disconnect').addEventListener('click',disconnectMQTT);
+  $('mqtt-connect').addEventListener('click',()=>connectMQTT());
+  $('mqtt-disconnect').addEventListener('click',()=>disconnectMQTT());
   $('logout').addEventListener('click',()=>state.auth&&signOut(state.auth));
   $('status-id').textContent=DEVICE_ID;$('aside-device').textContent=DEVICE_ID;
   function clock(){ $('clock').textContent=formatTime(Date.now(),true); if(state.auth?.currentUser)applyLive(); }

@@ -1,29 +1,49 @@
-# AnggrekSense – Website Login Cukup Password
+# AnggrekSense - Login website + MQTT otomatis (server Vercel)
 
-Versi ini menghilangkan login email Firebase pada dashboard. **Tetap gunakan `config.js` yang saat ini ada di repository kamu** supaya URL/API key Firebase dan alamat EMQX tidak tertimpa. File `config.js` sengaja tidak diikutkan dalam ZIP revisi. Grafik, log, backup, dan MQTT tetap sama.
+## Apa yang berubah
+- `index.html`: login password saja, tanpa input MQTT / CDN mqtt.js, tombol Sambungkan Ulang untuk mencoba ulang koneksi otomatis.
+- `app.js`: setelah Firebase login, langsung terhubung ke `wss://<DOMAIN_WEBSITE>/api/live`; Firebase ID Token dikirim melalui WebSocket HTTPS/WSS untuk autentikasi server. Tidak ada username/password MQTT di frontend.
+- `api/live.js`: BARU, fungsi WebSocket di Vercel. Verifikasi Firebase ID token untuk `FIREBASE_OWNER_UID`, lalu MQTT TLS port 8883 ke EMQX dengan akun viewer dari Vercel env; stream JSON sensor ke browser.
+- `config.js`: hanya konfigurasi publik Firebase (tidak ada secret MQTT).
+- `package.json`: menambah `mqtt` dan `ws` (server side) selain `firebase-admin`.
+- `styles.css`: logo/icon transparan serta login sederhana.
+- `logo-anggreksense.png`, `icon-anggreksense.png`: PNG berwarna dengan background transparan.
+- `api/login.js`: tetap digunakan, tidak diubah.
 
-## Update GitHub
+## Setup wajib di EMQX Cloud
+1. Di *Access Control > Authentication*, buat USER MQTT BARU khusus viewer, misalnya `anggrek_viewer`. Pakai password acak, JANGAN akun ESP32 dan JANGAN akun administrator.
+2. Di *Access Control > Authorization* tambah rule USERNAME viewer:
+   - Subscribe -> Allow -> `anggrek/anggrek_01/live`
+   - Publish -> Deny -> `#`
+   - Untuk isolasi ketat: tambahkan Subscribe -> Deny -> `#` (pastikan urutannya tidak mendahului Allow Subscribe yang lebih spesifik, atau gunakan global Deny-all setelah semua per-user Allow).
+3. Jangan aktifkan Global Deny-all begitu saja jika izin publish ESP32 belum dibuat; itu akan menghentikan alat.
+4. Uji di MQTTX: viewer dapat Subscribe topic live tetapi tidak bisa Publish topic lain.
 
-Upload dan replace file `index.html`, `app.js`, `styles.css`, `logo-anggreksense.png`, `icon-anggreksense.png`, `package.json`, `.gitignore`, `README.md`, dan **folder `api/` beserta `login.js`**. Pertahankan `config.js` lama di root repo. Pastikan path: `api/login.js` (bukan `login.js` di root).
+## Setup Vercel > Project > Settings > Environment Variables
+SEMUA variabel di bawah hanya untuk backend, jangan ditulis di `config.js`.
 
-## Setting Vercel (Project → Settings → Environment Variables)
+| Name | Value |
+| --- | --- |
+| `DASHBOARD_PASSWORD` | Password LOGIN website yang sudah dipakai |
+| `FIREBASE_OWNER_UID` | UID Firebase Auth yang sama dengan `api/login.js` |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | JSON Firebase Admin asli (sudah dipakai `api/login.js`) |
+| `EMQX_HOST` | Host broker (tanpa `mqtts://`, `wss://`, `:8883`, atau `/mqtt`) |
+| `EMQX_VIEWER_USERNAME` | Username viewer baru dari EMQX |
+| `EMQX_VIEWER_PASSWORD` | Password viewer baru dari EMQX |
 
-Buat tiga Environment Variables berikut untuk Production (dan Preview jika perlu):
+Pilih environment **Production**, simpan env, lalu **redeploy** terbaru dari GitHub.
 
-- `DASHBOARD_PASSWORD`: password **baru** untuk masuk website, minimal 12 karakter acak/unik. Jangan pakai password ESP32/Firebase yang pernah tertulis di chat.
-- `FIREBASE_OWNER_UID`: **UID akun Owner/Admin pada Firebase Authentication → Users** yang sudah memiliki akses baca/hapus dalam Realtime Database Rules. Bukan email, bukan Google Cloud IAM ID.
-- `FIREBASE_SERVICE_ACCOUNT_JSON`: isi **JSON service account** lengkap dari Firebase Console → Project settings → Service accounts → Firebase Admin SDK → Generate new private key. Tempel isi JSON sebagai **nilai environment variable Vercel**, jangan upload JSON ke GitHub atau frontend.
-
-**Setelah setting env:** Deployments → Redeploy untuk menerapkan env baru. Jika Vercel memakai framework preset `Other`, root `./`; build command default; Node.js serverless route `/api/login` tersedia.
-
-## Firebase
-
-- `config.js` tetap perlu `apiKey`, `authDomain`, `databaseURL`, `projectId`, `appId` Web App yang benar. `ADMIN_EMAIL` pada config.js boleh dibiarkan, sudah tidak digunakan.
-- Firebase Authentication harus tetap aktif (custom token di belakang layar). Browser tidak perlu memasukkan email Admin.
-- Jangan mengubah Database Rules jadi `.read=true`/`.write=true`. UID yang dipakai di `FIREBASE_OWNER_UID` **harus sama** dengan UID yang diberi akses baca dan backup pada Rules.
-- MQTT WSS di browser tetap opsional, datanya tetap tampil dari `latest` Firebase jika MQTT browser belum connect.
-- Serverless functions pada Vercel memerlukan ketersediaan fungsi sesuai plan. Jangan bagikan service account JSON, password, atau token.
+## Cara pakai
+1. Commit isi folder ini (isi folder, bukan membungkusnya menjadi folder baru) ke root repo GitHub.
+2. Vercel -> Deployments -> pastikan status **Ready**.
+3. Website -> login dengan password tunggal -> dashboard otomatis menerima MQTT ketika ada ESP32 yang mengirim data.
+4. Jika ada gangguan, buka Informasi Perangkat: `mqtt-info` menunjukkan status. Tombol Sambungkan Ulang meminta WebSocket Vercel terhubung kembali tanpa minta password MQTT.
+5. Jika ada galat, buka Vercel -> Logs dan EMQX -> Logs/Clients untuk melihat error auth/ACL. Tidak ada koneksi MQTT aktual yang bisa dijamin tanpa deployment yang sudah berjalan dan pengaturan env.
 
 ## Catatan keamanan
-
-Website dengan password saja yang aman tetap memerlukan backend. Endpoint `/api/login` membandingkan password di server (timing-safe hash), lalu menerbitkan Firebase custom token untuk UID yang diizinkan. Simpan semua secret hanya dalam Environment Variables Vercel. Untuk situs publik jangka panjang, gunakan password kuat dan rate limiting melalui fitur proteksi platform; fungsi tidak memasang pembatas percobaan lintas server. Jika password bocor, ganti lewat Vercel → Environment Variables lalu redeploy.
+- Tidak ada MQTT secret di file frontend ataupun respons WebSocket. Hanya data suhu/kelembapan yang diteruskan ke klien yang berhasil login.
+- Browser mengirim Firebase ID token (kredensial sesi Firebase) ke endpoint `wss://` domain website sendiri. Gunakan HTTPS di Production. Jangan tambahkan token ke URL / console logs.
+- Kredensial ESP32 yang sebelumnya pernah ditaruh dalam source GitHub / chat harus dirotasi pada EMQX, lalu diperbarui di firmware; gunakan akun viewer baru yang read-only.
+- Serverless WebSocket Vercel memiliki batas durasi fungsi. `app.js` akan melakukan reconnect otomatis bila WebSocket ditutup.
+- Fungsi menghasilkan koneksi MQTT tersendiri per browser. Pantau batas connection minutes EMQX dan Vercel resource limits.
+- **Kebutuhan**: Vercel Functions yang mendukung WebSocket (Vercel mengumumkan GA 20 Oct 2026). `api/live.js` memakai default-export `http.Server` sesuai contoh dokumentasi Vercel.

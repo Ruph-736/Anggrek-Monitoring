@@ -13,3 +13,12 @@
 .login-card p{margin-top:0;margin-bottom:19px;text-align:center}
 .login-card small code{font-size:inherit;color:#667b95}
 @media(max-width:780px){.brand{margin-right:14px;margin-bottom:0}.brand b{font-size:13px}.brand-mark{width:35px;height:35px;min-width:35px}.login-card{padding:27px 24px}}
+
+/* DIUBAH: gambar PNG transparan tetap penuh warna; tanpa kotak putih. */
+.brand-mark{background:transparent;box-shadow:none;border-radius:0;padding:0;overflow:visible}
+.brand-mark img{filter:none;object-fit:contain}
+.login-card{max-width:430px;padding:35px 36px}
+.login-logo{display:block;width:100%;height:auto;max-height:145px;margin:0 auto 23px;object-fit:contain;filter:none}
+.login-card form{gap:12px}.login-card label{margin-top:0}
+.login-card .full{margin-top:7px}
+@media(max-width:780px){.login-card{padding:27px 23px}.brand-mark{padding:0}}
