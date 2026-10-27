@@ -18,61 +18,244 @@
 <body>
 <div id="login-overlay" class="auth-overlay">
   <div class="login-card">
-    <!-- DIUBAH: Logo AnggrekSense dan login cukup password -->
     <img class="login-logo" src="logo-anggreksense.png" alt="AnggrekSense" />
-    <p>Dashboard penelitian suhu dan kelembapan tanaman anggrek.</p>
     <form id="login-form">
-      <label for="login-password">Password Dashboard</label>
-      <input id="login-password" required type="password" placeholder="Masukkan password website" autocomplete="current-password" />
-      <button class="primary-btn full" type="submit">Masuk ke Dashboard</button>
+      <label for="login-password">Password</label>
+      <input id="login-password" required type="password" placeholder="Masukkan password" autocomplete="current-password" />
+      <button class="primary-btn full" type="submit">Masuk</button>
     </form>
     <div id="login-error" class="form-error" role="alert"></div>
-    <small>Cukup password website. Pengaturan akses disimpan aman di Vercel.</small>
   </div>
 </div>
 <div class="shell">
   <aside class="sidebar">
-    <!-- DIUBAH: Brand memakai logo AnggrekSense, tanpa tagline -->
-    <div class="brand"><span class="brand-mark"><img src="icon-anggreksense.png" alt="" /></span><div><b>AnggrekSense</b></div></div>
+    <div class="brand">
+      <span class="brand-mark"><img src="icon-anggreksense.png" alt="" /></span>
+      <div><b>AnggrekSense</b></div>
+    </div>
     <div class="nav-label">MENU UTAMA</div>
     <button class="nav-item active" data-page="dashboard"><span class="nav-icon">▦</span><span>Dashboard</span></button>
     <button class="nav-item" data-page="history"><span class="nav-icon">◷</span><span>Riwayat Data</span></button>
     <button class="nav-item" data-page="device"><span class="nav-icon">▤</span><span>Informasi Perangkat</span></button>
     <button class="nav-item" data-page="storage"><span class="nav-icon">▥</span><span>Backup & Penyimpanan</span></button>
-    <div class="sidebar-footer"><small>PERANGKAT TERDAFTAR</small><div class="device-dot"><i></i><span id="aside-device">anggrek_01</span></div><p>ESP32 · Sensor SHT30</p></div>
+    <div class="sidebar-footer">
+      <small>PERANGKAT TERDAFTAR</small>
+      <div class="device-dot"><i></i><span id="aside-device">anggrek_01</span></div>
+      <p>ESP32 · Sensor SHT30</p>
+    </div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><div><span class="breadcrumb">Monitoring / <b id="breadcrumb-title">Dashboard</b></span><h1 id="top-title">Monitoring Dashboard</h1></div><div class="top-right"><span id="clock"></span><span class="user-pill" id="user-email">Belum masuk</span><button id="logout" class="ghost-btn" title="Keluar">Keluar</button></div></header>
+    <header class="topbar">
+      <div>
+        <span class="breadcrumb">Monitoring / <b id="breadcrumb-title">Dashboard</b></span>
+        <h1 id="top-title">Monitoring Dashboard</h1>
+      </div>
+      <div class="top-right">
+        <span id="clock"></span>
+        <span class="user-pill" id="user-email">Belum masuk</span>
+        <button id="logout" class="ghost-btn" title="Keluar">Keluar</button>
+      </div>
+    </header>
     <main>
       <div id="notice" role="status" class="notice hidden"></div>
+
       <section class="page active" id="page-dashboard">
-        <div class="section-heading"><div><span class="eyebrow">ORCHID ENVIRONMENT MONITORING</span><h2>Kondisi Lingkungan Anggrek</h2><p>Pemantauan suhu dan kelembapan secara real-time.</p></div><span class="subtle-tag" id="data-source">Menunggu perangkat</span></div>
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">ORCHID ENVIRONMENT MONITORING</span>
+            <h2>Kondisi Lingkungan Anggrek</h2>
+            <p>Pemantauan suhu dan kelembapan secara real-time.</p>
+          </div>
+          <span class="subtle-tag" id="data-source">Menunggu perangkat</span>
+        </div>
         <div class="stats">
-          <article class="stat-card feature"><div class="stat-name">SUHU UDARA <span class="stat-icon sun">☀</span></div><div class="stat-value"><span id="metric-temp">--</span><small>°C</small></div><p>Sensor SHT30 • Pembacaan terbaru</p></article>
-          <article class="stat-card feature"><div class="stat-name">KELEMBAPAN RELATIF <span class="stat-icon drop">◉</span></div><div class="stat-value"><span id="metric-hum">--</span><small>%RH</small></div><p>Kelembapan di sekitar anggrek</p></article>
-          <article class="stat-card"><div class="stat-name">STATUS PERANGKAT <span class="stat-icon">⌁</span></div><div class="status-value"><i class="status-indicator" id="device-dot"></i><strong id="device-status">Menunggu</strong></div><p id="last-time">Belum ada data</p></article>
-          <article class="stat-card"><div class="stat-name">KONEKTIVITAS <span class="stat-icon">◈</span></div><div class="status-value"><span id="mqtt-status" class="tiny-pill">MQTT: OFF</span></div><p><span id="firebase-status">Firebase: Menunggu</span></p></article>
+          <article class="stat-card feature">
+            <div class="stat-name">SUHU UDARA <span class="stat-icon sun">☀</span></div>
+            <div class="stat-value"><span id="metric-temp">--</span><small>°C</small></div>
+            <p>Sensor SHT30 • Pembacaan terbaru</p>
+          </article>
+          <article class="stat-card feature">
+            <div class="stat-name">KELEMBAPAN RELATIF <span class="stat-icon drop">◉</span></div>
+            <div class="stat-value"><span id="metric-hum">--</span><small>%RH</small></div>
+            <p>Kelembapan di sekitar anggrek</p>
+          </article>
+          <article class="stat-card">
+            <div class="stat-name">STATUS PERANGKAT <span class="stat-icon">⌁</span></div>
+            <div class="status-value"><i class="status-indicator" id="device-dot"></i><strong id="device-status">Menunggu</strong></div>
+            <p id="last-time">Belum ada data</p>
+          </article>
+          <article class="stat-card">
+            <div class="stat-name">KONEKTIVITAS <span class="stat-icon">◈</span></div>
+            <div class="status-value"><span id="mqtt-status" class="tiny-pill">MQTT: OFF</span></div>
+            <p><span id="firebase-status">Firebase: Menunggu</span></p>
+          </article>
         </div>
+
         <div class="chart-grid">
-          <article class="panel chart-panel"><div class="panel-head"><div><h3>Grafik Suhu & Kelembapan</h3><p>Riwayat pengukuran berbasis Firebase</p></div><div class="periods" data-periods="dashboard"><button data-period="1h" class="active">1 Jam</button><button data-period="6h">6 Jam</button><button data-period="24h">24 Jam</button><button data-period="30d">1 Bulan</button></div></div><div class="chart-wrap"><canvas id="sensor-chart"></canvas></div><div class="chart-foot"><span class="legend"><i class="legend-orange"></i> Suhu (°C) &nbsp; <i class="legend-blue"></i> Kelembapan (%RH)</span><small id="chart-info">Belum ada data</small></div></article>
-          <article class="panel system-panel"><div class="panel-head"><div><h3>Status Sistem</h3><p>Kondisi koneksi & perangkat</p></div></div><div class="status-list"><div><span>Device ID</span><b id="status-id">anggrek_01</b></div><div><span>Sensor</span><b>SHT30 · I²C</b></div><div><span>Update MQTT</span><b>5 detik</b></div><div><span>Simpan Firebase</span><b>60 detik</b></div><div><span>Alamat sensor</span><b>0x44 / 0x45</b></div><div><span>Update terakhir</span><b id="system-updated">—</b></div></div><div class="hint">Dashboard tidak menampilkan data simulasi. Jika alat mati, angka terakhir tetap tampil dengan status <b>Offline</b>.</div></article>
+          <article class="panel chart-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Grafik Suhu & Kelembapan</h3>
+                <p>Riwayat pengukuran berbasis Firebase</p>
+              </div>
+              <div class="periods" data-periods="dashboard">
+                <button data-period="1h" class="active">1 Jam</button>
+                <button data-period="6h">6 Jam</button>
+                <button data-period="24h">24 Jam</button>
+                <button data-period="30d">1 Bulan</button>
+              </div>
+            </div>
+            <div class="chart-wrap"><canvas id="sensor-chart"></canvas></div>
+            <div class="chart-foot">
+              <span class="legend"><i class="legend-orange"></i> Suhu (°C) &nbsp; <i class="legend-blue"></i> Kelembapan (%RH)</span>
+              <small id="chart-info">Belum ada data</small>
+            </div>
+          </article>
+          <article class="panel system-panel">
+            <div class="panel-head">
+              <div><h3>Status Sistem</h3><p>Kondisi koneksi & perangkat</p></div>
+            </div>
+            <div class="status-list">
+              <div><span>Device ID</span><b id="status-id">anggrek_01</b></div>
+              <div><span>Sensor</span><b>SHT30 · I²C</b></div>
+              <div><span>Update MQTT</span><b>5 detik</b></div>
+              <div><span>Simpan Firebase</span><b>60 detik</b></div>
+              <div><span>Alamat sensor</span><b>0x44 / 0x45</b></div>
+              <div><span>Update terakhir</span><b id="system-updated">—</b></div>
+            </div>
+            <div class="hint">Dashboard tidak menampilkan data simulasi. Jika alat mati, angka terakhir tetap tampil dengan status <b>Offline</b>.</div>
+          </article>
         </div>
-        <article class="panel recent"><div class="panel-head"><div><h3>Log Pengukuran Terbaru</h3><p>Sepuluh pengukuran terakhir tersimpan</p></div><button class="small-btn" data-jump="history">Lihat Semua Riwayat →</button></div><div class="table-scroll"><table><thead><tr><th>Waktu (WIB)</th><th>Suhu (°C)</th><th>Kelembapan (%RH)</th><th>Jenis</th></tr></thead><tbody id="recent-rows"><tr><td colspan="4" class="empty-cell">Belum ada data.</td></tr></tbody></table></div></article>
+
+        <article class="panel recent">
+          <div class="panel-head">
+            <div><h3>Log Pengukuran Terbaru</h3><p>Sepuluh pengukuran terakhir tersimpan</p></div>
+            <button class="small-btn" data-jump="history">Lihat Semua Riwayat →</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Waktu (WIB)</th><th>Suhu (°C)</th><th>Kelembapan (%RH)</th><th>Jenis</th></tr></thead>
+              <tbody id="recent-rows"><tr><td colspan="4" class="empty-cell">Belum ada data.</td></tr></tbody>
+            </table>
+          </div>
+        </article>
       </section>
+
       <section class="page" id="page-history">
-        <div class="section-heading"><div><span class="eyebrow">DATABASE HISTORY</span><h2>Riwayat Data</h2><p>Pilih periode pengukuran untuk grafik dan tabel.</p></div><button id="export-period" class="primary-btn">↓ Unduh CSV Periode</button></div>
-        <article class="panel"><div class="panel-head"><div><h3>Grafik Historis</h3><p>Grafik satu bulan menggunakan rata-rata per jam</p></div><div class="periods" data-periods="history"><button data-period="1h">1 Jam</button><button data-period="6h">6 Jam</button><button data-period="24h" class="active">24 Jam</button><button data-period="30d">1 Bulan</button></div></div><div class="chart-wrap"><canvas id="history-chart"></canvas></div><small id="history-chart-info" class="footnote">Belum ada data</small></article>
-        <article class="panel table-panel"><div class="panel-head"><div><h3>Log Data Firebase</h3><p id="log-count">Belum ada log</p></div><button class="small-btn" id="refresh-history">↻ Segarkan</button></div><div class="table-scroll"><table><thead><tr><th>No</th><th>Tanggal & Waktu (WIB)</th><th>Suhu (°C)</th><th>Kelembapan (%RH)</th><th>Keterangan</th></tr></thead><tbody id="history-rows"><tr><td colspan="5" class="empty-cell">Belum ada data</td></tr></tbody></table></div><div class="table-footer"><button id="prev-page" class="small-btn">← Sebelumnya</button><span id="page-count">Halaman 1</span><button id="next-page" class="small-btn">Selanjutnya →</button></div></article>
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">DATABASE HISTORY</span>
+            <h2>Riwayat Data</h2>
+            <p>Pilih periode pengukuran untuk grafik dan tabel.</p>
+          </div>
+          <button id="export-period" class="primary-btn">↓ Unduh CSV Periode</button>
+        </div>
+        <article class="panel">
+          <div class="panel-head">
+            <div><h3>Grafik Historis</h3><p>Grafik satu bulan menggunakan rata-rata per jam</p></div>
+            <div class="periods" data-periods="history">
+              <button data-period="1h">1 Jam</button>
+              <button data-period="6h">6 Jam</button>
+              <button data-period="24h" class="active">24 Jam</button>
+              <button data-period="30d">1 Bulan</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="history-chart"></canvas></div>
+          <small id="history-chart-info" class="footnote">Belum ada data</small>
+        </article>
+        <article class="panel table-panel">
+          <div class="panel-head">
+            <div><h3>Log Data Firebase</h3><p id="log-count">Belum ada log</p></div>
+            <button class="small-btn" id="refresh-history">↻ Segarkan</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>No</th><th>Tanggal & Waktu (WIB)</th><th>Suhu (°C)</th><th>Kelembapan (%RH)</th><th>Keterangan</th></tr></thead>
+              <tbody id="history-rows"><tr><td colspan="5" class="empty-cell">Belum ada data</td></tr></tbody>
+            </table>
+          </div>
+          <div class="table-footer">
+            <button id="prev-page" class="small-btn">← Sebelumnya</button>
+            <span id="page-count">Halaman 1</span>
+            <button id="next-page" class="small-btn">Selanjutnya →</button>
+          </div>
+        </article>
       </section>
+
       <section class="page" id="page-device">
-        <div class="section-heading"><div><span class="eyebrow">INFORMASI TEKNIS</span><h2>Informasi Perangkat</h2><p>Arsitektur dan parameter sistem monitoring.</p></div></div>
-        <div class="info-cards"><article class="panel info-panel"><h3>Perangkat Keras</h3><div class="status-list"><div><span>Mikrokontroler</span><b>ESP32 DevKit</b></div><div><span>Sensor</span><b>SHT30</b></div><div><span>SDA</span><b>GPIO 21</b></div><div><span>SCL</span><b>GPIO 22</b></div><div><span>VCC</span><b>3.3 V</b></div><div><span>Alamat I²C</span><b>0x44 / 0x45</b></div></div></article><article class="panel info-panel"><h3>Komunikasi & Penyimpanan</h3><div class="status-list"><div><span>Live</span><b>EMQX MQTT TLS</b></div><div><span>Port MQTT</span><b>8883</b></div><div><span>Dashboard MQTT</span><b>WSS 8084 (opsional)</b></div><div><span>Database</span><b>Firebase Realtime DB</b></div><div><span>Log mentah</span><b>60 detik</b></div><div><span>Agregasi bulanan</span><b>Rata-rata per jam</b></div></div></article></div>
-        <article class="panel info-panel"><h3>Koneksi MQTT dari Browser (Opsional)</h3><p class="soft-copy">Secara default dashboard menampilkan data terkini dari Firebase. Jika ingin menerima pesan MQTT setiap 5 detik, masukkan kredensial <b>read-only</b> EMQX khusus dashboard. Username dan password hanya disimpan selama tab dibuka.</p><div class="inline-form"><label>Username MQTT<input id="mqtt-user" type="text" autocomplete="off" placeholder="viewer_anggrek" /></label><label>Password MQTT<input id="mqtt-pass" type="password" autocomplete="off" placeholder="Password EMQX" /></label><button class="primary-btn" id="mqtt-connect">Sambungkan MQTT</button><button class="small-btn" id="mqtt-disconnect">Putuskan</button></div><p class="footnote" id="mqtt-info">Isi MQTT_WSS_URL di config.js dahulu. Jangan gunakan kredensial admin EMQX.</p></article>
+        <div class="section-heading">
+          <div><span class="eyebrow">INFORMASI TEKNIS</span><h2>Informasi Perangkat</h2><p>Arsitektur dan parameter sistem monitoring.</p></div>
+        </div>
+        <div class="info-cards">
+          <article class="panel info-panel">
+            <h3>Perangkat Keras</h3>
+            <div class="status-list">
+              <div><span>Mikrokontroler</span><b>ESP32 DevKit</b></div>
+              <div><span>Sensor</span><b>SHT30</b></div>
+              <div><span>SDA</span><b>GPIO 21</b></div>
+              <div><span>SCL</span><b>GPIO 22</b></div>
+              <div><span>VCC</span><b>3.3 V</b></div>
+              <div><span>Alamat I²C</span><b>0x44 / 0x45</b></div>
+            </div>
+          </article>
+          <article class="panel info-panel">
+            <h3>Komunikasi & Penyimpanan</h3>
+            <div class="status-list">
+              <div><span>Live</span><b>EMQX MQTT TLS</b></div>
+              <div><span>Port MQTT</span><b>8883</b></div>
+              <div><span>Dashboard MQTT</span><b>WSS 8084</b></div>
+              <div><span>Database</span><b>Firebase Realtime DB</b></div>
+              <div><span>Log mentah</span><b>60 detik</b></div>
+              <div><span>Agregasi bulanan</span><b>Rata-rata per jam</b></div>
+            </div>
+          </article>
+        </div>
+
+        <!-- DIUBAH: Memperbaiki blok MQTT, menghapus karakter HTML yang salah -->
+        <article class="panel info-panel">
+          <h3>Koneksi MQTT Browser</h3>
+          <p class="soft-copy">Status koneksi MQTT EMQX.</p>
+          <div class="inline-form">
+            <button class="primary-btn" id="mqtt-connect">Sambungkan Ulang</button>
+            <button class="small-btn" id="mqtt-disconnect">Putuskan</button>
+          </div>
+          <p class="footnote" id="mqtt-info">MQTT browser belum tersambung.</p>
+        </article>
       </section>
+
       <section class="page" id="page-storage">
-        <div class="section-heading"><div><span class="eyebrow">DATA MAINTENANCE</span><h2>Backup & Penyimpanan</h2><p>Backup dan pembersihan manual supaya tetap hemat paket gratis.</p></div></div>
-        <div class="info-cards"><article class="panel info-panel"><h3>Paket Firebase Spark</h3><div class="quota"><strong>1 GB</strong><span>Kuota penyimpanan database</span></div><div class="quota"><strong>10 GB / bulan</strong><span>Kuota unduhan database</span></div><p class="soft-copy">Angka di atas adalah kuota paket, bukan penggunaan aktual proyek. Cek Usage langsung melalui Firebase Console.</p></article><article class="panel info-panel"><h3>Strategi 1 Tahun</h3><div class="status-list"><div><span>Riwayat per menit</span><b>60 detik</b></div><div><span>Ringkasan per jam</span><b>Disimpan terus</b></div><div><span>Backup disarankan</span><b>Bulanan</b></div><div><span>Hapus log mentah</span><b>Usia &gt; 90 hari</b></div><div><span>Hapus satu database</span><b>Tidak diperlukan</b></div></div></article></div>
-        <article class="panel info-panel"><h3>Arsip Bulanan (CSV)</h3><p class="soft-copy">Pilih bulan, unduh semua data log mentah dan agregat per jam dalam satu CSV. Setelah <b>memastikan file backup tersimpan</b>, log mentah bulan yang sudah lebih dari 90 hari boleh dihapus. Ringkasan per jam tidak dihapus sehingga grafik bulanan tetap berfungsi untuk periode tersisa.</p><div class="archive-form"><label>Pilih bulan (UTC untuk pengelompokan)<input id="archive-month" type="month" /></label><button id="backup-month" class="primary-btn">↓ Backup CSV Bulanan</button><button id="cleanup-month" class="danger-btn">Hapus Log Bulan Ini</button></div><p id="archive-info" class="form-note">Penghapusan hanya tersedia setelah backup pada sesi browser ini dan hanya untuk bulan yang berakhir lebih dari 90 hari lalu.</p><div class="hint">Perhatian: backup CSV tersimpan di perangkat/browser, bukan otomatis di Firebase atau Cloud Storage. Simpan salinan tambahan di drive komputer/penyimpanan pribadi sebelum hapus data.</div></article>
+        <div class="section-heading">
+          <div><span class="eyebrow">DATA MAINTENANCE</span><h2>Backup & Penyimpanan</h2><p>Backup dan pembersihan manual supaya tetap hemat paket gratis.</p></div>
+        </div>
+        <div class="info-cards">
+          <article class="panel info-panel">
+            <h3>Paket Firebase Spark</h3>
+            <div class="quota"><strong>1 GB</strong><span>Kuota penyimpanan database</span></div>
+            <div class="quota"><strong>10 GB / bulan</strong><span>Kuota unduhan database</span></div>
+            <p class="soft-copy">Angka di atas adalah kuota paket, bukan penggunaan aktual proyek. Cek Usage langsung melalui Firebase Console.</p>
+          </article>
+          <article class="panel info-panel">
+            <h3>Strategi 1 Tahun</h3>
+            <div class="status-list">
+              <div><span>Riwayat per menit</span><b>60 detik</b></div>
+              <div><span>Ringkasan per jam</span><b>Disimpan terus</b></div>
+              <div><span>Backup disarankan</span><b>Bulanan</b></div>
+              <div><span>Hapus log mentah</span><b>Usia &gt; 90 hari</b></div>
+              <div><span>Hapus satu database</span><b>Tidak diperlukan</b></div>
+            </div>
+          </article>
+        </div>
+        <article class="panel info-panel">
+          <h3>Arsip Bulanan (CSV)</h3>
+          <p class="soft-copy">Pilih bulan, unduh semua data log mentah dan agregat per jam dalam satu CSV. Setelah <b>memastikan file backup tersimpan</b>, log mentah bulan yang sudah lebih dari 90 hari boleh dihapus. Ringkasan per jam tidak dihapus sehingga grafik bulanan tetap berfungsi untuk periode tersisa.</p>
+          <div class="archive-form">
+            <label>Pilih bulan (UTC untuk pengelompokan)<input id="archive-month" type="month" /></label>
+            <button id="backup-month" class="primary-btn">↓ Backup CSV Bulanan</button>
+            <button id="cleanup-month" class="danger-btn">Hapus Log Bulan Ini</button>
+          </div>
+          <p id="archive-info" class="form-note">Penghapusan hanya tersedia setelah backup pada sesi browser ini dan hanya untuk bulan yang berakhir lebih dari 90 hari lalu.</p>
+          <div class="hint">Perhatian: backup CSV tersimpan di perangkat/browser, bukan otomatis di Firebase atau Cloud Storage. Simpan salinan tambahan di drive komputer/penyimpanan pribadi sebelum hapus data.</div>
+        </article>
       </section>
     </main>
     <footer class="main-footer">ANGGREKSENSE • ESP32 + SHT30 • EMQX CLOUD + FIREBASE REALTIME DATABASE <span>Waktu ditampilkan dalam WIB (Asia/Jakarta)</span></footer>
