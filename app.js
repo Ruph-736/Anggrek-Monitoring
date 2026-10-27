@@ -1,3 +1,4 @@
+
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import { getDatabase, ref, onValue, get, query, orderByChild, startAt, endAt, remove } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js';
@@ -55,8 +56,8 @@ function makeChart(canvas){
 function chartPoints(rows,field,period){
   const step=period==='30d'?3600000:60000;
   const points=[];
-  for (let i=0;i<rows.length;i++){
-    if (i>0 && (rows[i].ts - rows[i-1].ts)>step*2.8){
+  for(let i=0;i<rows.length;i++){
+    if(i>0 && (rows[i].ts-rows[i-1].ts)>step*2.8){
       points.push({x:Math.round((rows[i].ts+rows[i-1].ts)/2),y:null});
     }
     points.push({x:rows[i].ts,y:rows[i][field]});
@@ -207,38 +208,120 @@ async function cleanupMonth(){
   }catch(e){toast('Penghapusan gagal: '+e.message,true);}
 }
 
-function connectMQTT(){
-  if(!MQTT_WSS_URL)return toast('Isi MQTT_WSS_URL di file dashboard/config.js terlebih dahulu.',true);
-  if(!window.mqtt)return toast('mqtt.js gagal dimuat (periksa koneksi internet).',true);
-  const username=$('mqtt-user').value.trim(),password=$('mqtt-pass').value;
-  if(!username||!password)return toast('Isi username dan password MQTT khusus dashboard.',true);
-  disconnectMQTT();
-  const client=window.mqtt.connect(MQTT_WSS_URL,{clientId:`anggrek-web-${Math.random().toString(16).slice(2)}`,username,password,clean:true,reconnectPeriod:5000,connectTimeout:8000});
+// DIUBAH: Kredensial MQTT hanya dimasukkan melalui dialog, bukan config.js.
+function connectMQTT(username,password){
+  if(!MQTT_WSS_URL){toast('MQTT_WSS_URL belum diisi pada config.js.',true);return;}
+  if(!/^wss:\/\/[^/]+:8084\/mqtt$/i.test(MQTT_WSS_URL)){
+    toast('Format MQTT_WSS_URL harus wss://HOST_EMQX:8084/mqtt',true);return;
+  }
+  if(!window.mqtt){toast('Library MQTT.js tidak termuat. Periksa koneksi internet.',true);return;}
+  if(!username||!password){toast('Username dan password MQTT wajib diisi.',true);return;}
+  disconnectMQTT(false);
+  $('mqtt-info').textContent='Menghubungkan ke EMQX...';
+  const client=window.mqtt.connect(MQTT_WSS_URL,{
+    clientId:`anggrek-web-${Math.random().toString(16).slice(2,12)}`,
+    username,password,clean:true,protocolVersion:4,
+    reconnectPeriod:5000,connectTimeout:15000,keepalive:30
+  });
   state.mqttClient=client;
-  client.on('connect',()=>{state.mqttOnline=true;client.subscribe(MQTT_TOPIC);$('mqtt-info').textContent=`Terhubung MQTT WSS. Subscribe: ${MQTT_TOPIC}`;updateConnectivity();});
-  client.on('close',()=>{state.mqttOnline=false;updateConnectivity();});
-  client.on('error',e=>{$('mqtt-info').textContent='MQTT: '+e.message;state.mqttOnline=false;updateConnectivity();});
+  client.on('connect',()=>{
+    if(state.mqttClient!==client)return;
+    state.mqttOnline=true;
+    client.subscribe(MQTT_TOPIC,{qos:0},error=>{
+      if(error){$('mqtt-info').textContent=`Subscribe gagal: ${error.message}`;return;}
+      $('mqtt-info').textContent=`Terhubung • topic: ${MQTT_TOPIC}`;
+    });
+    updateConnectivity();
+  });
+  client.on('reconnect',()=>{
+    if(state.mqttClient===client)$('mqtt-info').textContent='Menghubungkan ulang ke EMQX...';
+  });
+  client.on('close',()=>{
+    if(state.mqttClient!==client)return;
+    state.mqttOnline=false;updateConnectivity();
+    $('mqtt-info').textContent='Koneksi MQTT terputus. Mencoba kembali...';
+  });
+  client.on('error',error=>{
+    if(state.mqttClient!==client)return;
+    $('mqtt-info').textContent=`MQTT gagal: ${error.message}`;
+    state.mqttOnline=false;updateConnectivity();
+  });
   client.on('message',(topic,payload)=>{
     if(topic!==MQTT_TOPIC)return;
-    try{const row=JSON.parse(payload.toString());if(row.device_id!==DEVICE_ID||!validReading(row))return;state.mqttLast=cleanRow(row,'MQTT');applyLive();}catch(e){console.warn('Pesan MQTT tidak valid',e);}
+    try{
+      const row=JSON.parse(payload.toString());
+      if(row.device_id!==DEVICE_ID||!validReading(row))return;
+      state.mqttLast=cleanRow(row,'MQTT');
+      applyLive();
+    }catch(error){console.warn('Payload MQTT tidak valid:',error);}
   });
 }
-function disconnectMQTT(){
-  if(state.mqttClient){state.mqttClient.end(true);state.mqttClient=null;}
-  state.mqttOnline=false;state.mqttLast=null;updateConnectivity();
+
+// BARU: Dialog MQTT dibuat otomatis tanpa mengubah index.html.
+function openMQTTDialog(){
+  if(!state.auth?.currentUser){toast('Login ke dashboard terlebih dahulu.',true);return;}
+  if(!MQTT_WSS_URL){toast('Isi MQTT_WSS_URL di config.js terlebih dahulu.',true);return;}
+  document.getElementById('mqtt-dialog')?.remove();
+  const overlay=document.createElement('div');
+  overlay.id='mqtt-dialog';
+  overlay.className='mqtt-dialog-backdrop';
+  overlay.innerHTML=`<form class="mqtt-dialog-card" autocomplete="off">
+    <h3>Koneksi EMQX</h3>
+    <p>Masukkan akun MQTT khusus viewer (subscribe-only).</p>
+    <label>Username MQTT<input name="username" autocomplete="off" required placeholder="viewer_anggrek"></label>
+    <label>Password MQTT<input name="password" type="password" autocomplete="off" required placeholder="Password MQTT"></label>
+    <div class="mqtt-dialog-actions">
+      <button type="button" class="small-btn" data-cancel>Batal</button>
+      <button type="submit" class="primary-btn">Sambungkan</button>
+    </div>
+  </form>`;
+  const close=()=>{
+    overlay.remove();
+    document.removeEventListener('keydown',escapeHandler);
+  };
+  const escapeHandler=e=>{if(e.key==='Escape')close();};
+  overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
+  overlay.querySelector('[data-cancel]').addEventListener('click',close);
+  overlay.querySelector('form').addEventListener('submit',e=>{
+    e.preventDefault();
+    const form=e.currentTarget;
+    const username=form.elements.username.value.trim();
+    const password=form.elements.password.value;
+    close();
+    connectMQTT(username,password);
+  });
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown',escapeHandler);
+  overlay.querySelector('[name="username"]').focus();
+}
+function disconnectMQTT(showMessage=true){
+  if(state.mqttClient){
+    const old=state.mqttClient;
+    state.mqttClient=null;
+    old.end(true);
+  }
+  state.mqttOnline=false;
+  state.mqttLast=null;
+  updateConnectivity();
+  if(showMessage)$('mqtt-info').textContent='MQTT browser terputus.';
 }
 
 async function startAfterLogin(user){
-  $('login-overlay').classList.add('hidden');$('user-email').textContent='Dashboard';
+  $('login-overlay').classList.add('hidden');
+  $('user-email').textContent='Dashboard';
   subscribeLatest();
   if(!state.chartDashboard)state.chartDashboard=makeChart($('sensor-chart'));
   if(!state.chartHistory)state.chartHistory=makeChart($('history-chart'));
   await refreshDashboard();
+  // DIUBAH: MQTT disambungkan dari menu Informasi Perangkat.
+  $('mqtt-info').textContent='Klik Sambungkan Ulang untuk menghubungkan MQTT browser.';
 }
 function stopAfterLogout(){
-  disconnectMQTT();
+  document.getElementById('mqtt-dialog')?.remove();
+  disconnectMQTT(false);
   if(state.unsubLatest){state.unsubLatest();state.unsubLatest=null;}
-  state.latest=null;state.firebaseOnline=false;state.historyRows=[];state.dashboardRows=[];
+  state.latest=null;state.firebaseOnline=false;
+  state.historyRows=[];state.dashboardRows=[];
   $('login-overlay').classList.remove('hidden');
   updateConnectivity();
 }
@@ -254,42 +337,75 @@ function setupUI(){
   $('refresh-history').addEventListener('click',refreshHistory);
   $('prev-page').addEventListener('click',()=>{if(state.historyPage>0){state.historyPage--;renderHistoryTable();}});
   $('next-page').addEventListener('click',()=>{if((state.historyPage+1)*PER_PAGE<state.historyRows.length){state.historyPage++;renderHistoryTable();}});
-  $('export-period').addEventListener('click',()=>{if(!state.historyRows.length)return toast('Tidak ada data untuk diekspor.',true);downloadCSV(`AnggrekSense_${state.historyPeriod}_${new Date().toISOString().slice(0,10)}.csv`,rowsToCSV(state.historyRows));});
+  $('export-period').addEventListener('click',()=>{
+    if(!state.historyRows.length)return toast('Tidak ada data untuk diekspor.',true);
+    downloadCSV(`AnggrekSense_${state.historyPeriod}_${new Date().toISOString().slice(0,10)}.csv`,rowsToCSV(state.historyRows));
+  });
   $('backup-month').addEventListener('click',backupMonth);
   $('cleanup-month').addEventListener('click',cleanupMonth);
   $('archive-month').value=new Date().toISOString().slice(0,7);
-  $('archive-month').addEventListener('change',()=>{state.backupMonth='';$('archive-info').textContent='Bulan berubah. Silakan backup lagi sebelum penghapusan.';});
-  $('mqtt-connect').addEventListener('click',connectMQTT);
-  $('mqtt-disconnect').addEventListener('click',disconnectMQTT);
+  $('archive-month').addEventListener('change',()=>{
+    state.backupMonth='';
+    $('archive-info').textContent='Bulan berubah. Silakan backup lagi sebelum penghapusan.';
+  });
+  // DIUBAH: Tombol MQTT membuka dialog akun viewer.
+  $('mqtt-connect').addEventListener('click',openMQTTDialog);
+  $('mqtt-disconnect').addEventListener('click',()=>disconnectMQTT());
   $('logout').addEventListener('click',()=>state.auth&&signOut(state.auth));
-  $('status-id').textContent=DEVICE_ID;$('aside-device').textContent=DEVICE_ID;
-  function clock(){ $('clock').textContent=formatTime(Date.now(),true); if(state.auth?.currentUser)applyLive(); }
-  clock();setInterval(clock,15000);
-  setInterval(()=>{if(state.auth?.currentUser){if(state.page==='dashboard')refreshDashboard();else if(state.page==='history')refreshHistory();}},60000);
+  $('status-id').textContent=DEVICE_ID;
+  $('aside-device').textContent=DEVICE_ID;
+  function clock(){
+    $('clock').textContent=formatTime(Date.now(),true);
+    if(state.auth?.currentUser)applyLive();
+  }
+  clock();
+  setInterval(clock,15000);
+  setInterval(()=>{
+    if(state.auth?.currentUser){
+      if(state.page==='dashboard')refreshDashboard();
+      else if(state.page==='history')refreshHistory();
+    }
+  },60000);
 }
 
 function main(){
   setupUI();
   if(Object.values(FIREBASE_CONFIG).some(s=>!s||String(s).includes('GANTI_'))){
-    $('login-error').textContent='Isi dashboard/config.js dengan konfigurasi Firebase asli sebelum membuka dashboard.';
+    $('login-error').textContent='Isi config.js dengan konfigurasi Firebase asli sebelum membuka dashboard.';
     return;
   }
   const app=initializeApp(FIREBASE_CONFIG);
-  state.auth=getAuth(app);state.db=getDatabase(app);
+  state.auth=getAuth(app);
+  state.db=getDatabase(app);
+
   $('login-form').addEventListener('submit',async e=>{
-    e.preventDefault();$('login-error').textContent='';
-    // DIUBAH: Password web diperiksa Vercel; tidak perlu email/password Admin Firebase.
+    e.preventDefault();
+    $('login-error').textContent='';
     const button=$('login-form').querySelector('button[type="submit"]');
     button.disabled=true;
     try{
-      const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({password:$('login-password').value})});
-      const result=await response.json();
+      // DIUBAH: Login hanya menggunakan password dari Vercel.
+      const response=await fetch('/api/login',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        cache:'no-store',
+        body:JSON.stringify({password:$('login-password').value})
+      });
+      const result=await response.json().catch(()=>({
+        error:'Respons server bukan JSON. Periksa /api/login di Vercel.'
+      }));
       if(!response.ok)throw new Error(result.error||'Login gagal');
       await signInWithCustomToken(state.auth,result.token);
       $('login-password').value='';
-    }catch(err){ $('login-error').textContent=err.message||'Gagal masuk. Periksa pengaturan Vercel.'; }
-    finally{button.disabled=false;}
+    }catch(err){
+      $('login-error').textContent=err.message||'Gagal masuk. Periksa pengaturan Vercel.';
+    }finally{
+      button.disabled=false;
+    }
   });
-  onAuthStateChanged(state.auth,user=>{if(user)startAfterLogin(user).catch(err=>toast('Dashboard gagal memuat: '+err.message,true));else stopAfterLogout();});
+  onAuthStateChanged(state.auth,user=>{
+    if(user)startAfterLogin(user).catch(err=>toast('Dashboard gagal memuat: '+err.message,true));
+    else stopAfterLogout();
+  });
 }
 main();
