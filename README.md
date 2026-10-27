@@ -1,21 +1,29 @@
-# AnggrekSense — Dashboard ESP32 + SHT30
+# AnggrekSense – Website Login Cukup Password
 
-Dashboard web statis untuk Vercel, memakai Firebase Realtime Database untuk riwayat dan EMQX untuk MQTT real-time (opsional pada web). Gaya visual sama dengan dashboard Pressure Kit.
+Versi ini menghilangkan login email Firebase pada dashboard. **Tetap gunakan `config.js` yang saat ini ada di repository kamu** supaya URL/API key Firebase dan alamat EMQX tidak tertimpa. File `config.js` sengaja tidak diikutkan dalam ZIP revisi. Grafik, log, backup, dan MQTT tetap sama.
 
-## Konfigurasi cepat
+## Update GitHub
 
-1. Buka `config.js`. Isi `FIREBASE_CONFIG.apiKey` dan `FIREBASE_CONFIG.appId` berdasarkan Project settings → Your apps → Web app di Firebase Console. Cocokkan `authDomain`, `databaseURL`, dan `projectId` dengan milikmu.
-2. `ADMIN_EMAIL` sudah diisi dari akun Admin Authentication yang pernah kamu tunjukkan. Koreksi jika akun admin berbeda. Web hanya menampilkan field **password**. Password **jangan pernah** dimasukkan ke file web.
-3. Bila ingin monitoring MQTT live tiap 5 detik dari browser, isi `MQTT_WSS_URL` (umumnya `wss://HOST_EMQX:8084/mqtt`). Login menggunakan akun subscribe-only di menu Informasi Perangkat. Jika tidak, sensor terbaru diambil dari Firebase dan diperbarui tiap 60 detik.
-4. Pastikan Firebase Authentication → Sign-in method → Email/Password aktif. Tambahkan domain Vercel kamu di Firebase Authentication → Settings → Authorized domains. Pastikan akun Admin sudah ada di Authentication → Users (akun Google Owner proyek **tidak otomatis** akun Authentication).
-5. Pastikan Firebase Realtime Database Rules memberikan akun Admin izin membaca `/devices/anggrek_01/latest`, `logs` dan `hourly`, serta izin menghapus log lama sesuai kebutuhan.
-6. Upload file `index.html`, `styles.css`, `app.js`, `config.js`, `logo-anggreksense.png`, `icon-anggreksense.png` langsung ke direktori utama repo `Ruph-736/Anggrek-Monitoring`. File `README.md` opsional. Vercel otomatis deploy ulang ketika GitHub diperbarui.
+Upload dan replace file `index.html`, `app.js`, `styles.css`, `logo-anggreksense.png`, `icon-anggreksense.png`, `package.json`, `.gitignore`, `README.md`, dan **folder `api/` beserta `login.js`**. Pertahankan `config.js` lama di root repo. Pastikan path: `api/login.js` (bukan `login.js` di root).
 
-## Pemakaian dan keamanan
+## Setting Vercel (Project → Settings → Environment Variables)
 
-- Password-only adalah **tampilan login saja**. Firebase tetap mengautentikasi menggunakan email Admin yang tersimpan di `config.js` + password yang diketik pengguna.
-- Konfigurasi frontend dan email admin bisa dibaca oleh publik; API key Firebase bukan kunci admin rahasia. **Jangan** taruh password Firebase, EMQX, atau service-account credentials di file web.
-- Aturan Firebase Database (berbasis UID) adalah perlindungan akses utama. Karena repository kamu publik, jangan mengunggah firmware `config.h` yang berisi kredensial perangkat.
-- Interval data: SHT30 2 detik, MQTT 5 detik, Firebase 60 detik. Log dan grafik 1/6/24 jam memakai data per menit; grafik 1 bulan memakai agregat per jam.
-- Arsip bulan via CSV; penghapusan log bulan tua tetap harus dikonfirmasi dan hanya setelah backup pada sesi aktif; unduhan CSV tidak diverifikasi otomatis oleh browser. Periksa isi backup sebelum menghapus apa pun.
-- Tidak ada data demo/palsu. Data realtime hanya terlihat jika ESP32 telah mengirim.
+Buat tiga Environment Variables berikut untuk Production (dan Preview jika perlu):
+
+- `DASHBOARD_PASSWORD`: password **baru** untuk masuk website, minimal 12 karakter acak/unik. Jangan pakai password ESP32/Firebase yang pernah tertulis di chat.
+- `FIREBASE_OWNER_UID`: **UID akun Owner/Admin pada Firebase Authentication → Users** yang sudah memiliki akses baca/hapus dalam Realtime Database Rules. Bukan email, bukan Google Cloud IAM ID.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`: isi **JSON service account** lengkap dari Firebase Console → Project settings → Service accounts → Firebase Admin SDK → Generate new private key. Tempel isi JSON sebagai **nilai environment variable Vercel**, jangan upload JSON ke GitHub atau frontend.
+
+**Setelah setting env:** Deployments → Redeploy untuk menerapkan env baru. Jika Vercel memakai framework preset `Other`, root `./`; build command default; Node.js serverless route `/api/login` tersedia.
+
+## Firebase
+
+- `config.js` tetap perlu `apiKey`, `authDomain`, `databaseURL`, `projectId`, `appId` Web App yang benar. `ADMIN_EMAIL` pada config.js boleh dibiarkan, sudah tidak digunakan.
+- Firebase Authentication harus tetap aktif (custom token di belakang layar). Browser tidak perlu memasukkan email Admin.
+- Jangan mengubah Database Rules jadi `.read=true`/`.write=true`. UID yang dipakai di `FIREBASE_OWNER_UID` **harus sama** dengan UID yang diberi akses baca dan backup pada Rules.
+- MQTT WSS di browser tetap opsional, datanya tetap tampil dari `latest` Firebase jika MQTT browser belum connect.
+- Serverless functions pada Vercel memerlukan ketersediaan fungsi sesuai plan. Jangan bagikan service account JSON, password, atau token.
+
+## Catatan keamanan
+
+Website dengan password saja yang aman tetap memerlukan backend. Endpoint `/api/login` membandingkan password di server (timing-safe hash), lalu menerbitkan Firebase custom token untuk UID yang diizinkan. Simpan semua secret hanya dalam Environment Variables Vercel. Untuk situs publik jangka panjang, gunakan password kuat dan rate limiting melalui fitur proteksi platform; fungsi tidak memasang pembatas percobaan lintas server. Jika password bocor, ganti lewat Vercel → Environment Variables lalu redeploy.

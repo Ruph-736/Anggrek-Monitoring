@@ -1,7 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import { getDatabase, ref, onValue, get, query, orderByChild, startAt, endAt, remove } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js';
-import { FIREBASE_CONFIG, DEVICE_ID, MQTT_WSS_URL, MQTT_TOPIC, ADMIN_EMAIL } from './config.js';
+import { FIREBASE_CONFIG, DEVICE_ID, MQTT_WSS_URL, MQTT_TOPIC } from './config.js';
 
 const $ = id => document.getElementById(id);
 const BASE = `devices/${DEVICE_ID}`;
@@ -35,10 +35,20 @@ async function fetchRange(type,from,to){
 function makeChart(canvas){
   if(!window.Chart)throw new Error('Chart.js belum termuat (cek koneksi internet).');
   return new window.Chart(canvas.getContext('2d'),{
-    type:'line',data:{datasets:[
+    type:'line',
+    data:{datasets:[
       {label:'Suhu (°C)',data:[],borderColor:'#f49c5c',backgroundColor:'rgba(244,156,92,.08)',yAxisID:'t',pointRadius:0,pointHoverRadius:4,borderWidth:2.4,tension:.22,spanGaps:false},
       {label:'Kelembapan (%RH)',data:[],borderColor:'#208de1',backgroundColor:'rgba(32,141,225,.08)',yAxisID:'h',pointRadius:0,pointHoverRadius:4,borderWidth:2.4,tension:.22,spanGaps:false}
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',intersect:false},animation:false,normalized:true,plugins:{legend:{display:false},tooltip:{callbacks:{title:items=>items.length?formatTime(items[0].parsed.x):''}}},scales:{x:{type:'linear',ticks:{color:'#91a0b4',maxTicksLimit:6,callback:v=>formatTime(v,true),font:{size:10}},grid:{color:'#eef2f7'},border:{display:false}},t:{type:'linear',position:'left',ticks:{color:'#b18d75',font:{size:10}},grid:{color:'#eef2f7'},border:{display:false},title:{display:true,text:'Suhu (°C)',color:'#c39475',font:{size:10}}},h:{type:'linear',position:'right',min:0,max:100,ticks:{color:'#659ac3',font:{size:10}},grid:{drawOnChartArea:false},border:{display:false},title:{display:true,text:'Kelembapan (%)',color:'#659ac3',font:{size:10}}}}}}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',intersect:false},animation:false,normalized:true,
+      plugins:{legend:{display:false},tooltip:{callbacks:{title:items=>items.length?formatTime(items[0].parsed.x):''}}},
+      scales:{
+        x:{type:'linear',ticks:{color:'#91a0b4',maxTicksLimit:6,callback:v=>formatTime(v,true),font:{size:10}},grid:{color:'#eef2f7'},border:{display:false}},
+        t:{type:'linear',position:'left',ticks:{color:'#b18d75',font:{size:10}},grid:{color:'#eef2f7'},border:{display:false},title:{display:true,text:'Suhu (°C)',color:'#c39475',font:{size:10}}},
+        h:{type:'linear',position:'right',min:0,max:100,ticks:{color:'#659ac3',font:{size:10}},grid:{drawOnChartArea:false},border:{display:false},title:{display:true,text:'Kelembapan (%)',color:'#659ac3',font:{size:10}}}
+      }
+    }
   });
 }
 
@@ -136,7 +146,7 @@ function subscribeLatest(){
     const value=snap.val();
     state.latest=validReading(value)?cleanRow(value,'Pengukuran'):null;
     state.firebaseOnline=true;updateConnectivity();
-  },e=>{state.firebaseOnline=false;toast('Tidak punya izin membaca latest. Periksa UID admin dan Rules: '+e.message,true);updateConnectivity();});
+  },e=>{state.firebaseOnline=false;toast('Tidak punya izin membaca latest. Periksa FIREBASE_OWNER_UID dan Rules: '+e.message,true);updateConnectivity();});
 }
 function navigate(page){
   state.page=page;
@@ -219,7 +229,7 @@ function disconnectMQTT(){
 }
 
 async function startAfterLogin(user){
-  $('login-overlay').classList.add('hidden');$('user-email').textContent=user.email||'Admin';
+  $('login-overlay').classList.add('hidden');$('user-email').textContent='Dashboard';
   subscribeLatest();
   if(!state.chartDashboard)state.chartDashboard=makeChart($('sensor-chart'));
   if(!state.chartHistory)state.chartHistory=makeChart($('history-chart'));
@@ -264,24 +274,21 @@ function main(){
     $('login-error').textContent='Isi dashboard/config.js dengan konfigurasi Firebase asli sebelum membuka dashboard.';
     return;
   }
-  if(!ADMIN_EMAIL || ADMIN_EMAIL.includes('GANTI_')){ $('login-error').textContent='Isi ADMIN_EMAIL pada config.js terlebih dahulu.'; return; }
   const app=initializeApp(FIREBASE_CONFIG);
   state.auth=getAuth(app);state.db=getDatabase(app);
   $('login-form').addEventListener('submit',async e=>{
     e.preventDefault();$('login-error').textContent='';
-    // DIUBAH: Password-only UI; Firebase Authentication tetap memverifikasi email admin + password.
-    try{await signInWithEmailAndPassword(state.auth,ADMIN_EMAIL.trim(),$('login-password').value);$('login-password').value='';}
-    catch(err){
-      const messages={
-        'auth/invalid-credential':'Password salah atau akun admin belum dibuat di Firebase Authentication.',
-        'auth/invalid-email':'Email admin di config.js tidak valid.',
-        'auth/unauthorized-domain':'Domain website belum ditambahkan ke Firebase Authentication > Authorized domains.',
-        'auth/too-many-requests':'Terlalu banyak percobaan login. Coba lagi nanti.',
-        'auth/network-request-failed':'Koneksi internet atau akses Firebase terganggu.',
-        'auth/invalid-api-key':'apiKey Firebase di config.js belum benar.'
-      };
-      $('login-error').textContent=messages[err.code]||('Login gagal: '+err.message);
-    }
+    // DIUBAH: Password web diperiksa Vercel; tidak perlu email/password Admin Firebase.
+    const button=$('login-form').querySelector('button[type="submit"]');
+    button.disabled=true;
+    try{
+      const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({password:$('login-password').value})});
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||'Login gagal');
+      await signInWithCustomToken(state.auth,result.token);
+      $('login-password').value='';
+    }catch(err){ $('login-error').textContent=err.message||'Gagal masuk. Periksa pengaturan Vercel.'; }
+    finally{button.disabled=false;}
   });
   onAuthStateChanged(state.auth,user=>{if(user)startAfterLogin(user).catch(err=>toast('Dashboard gagal memuat: '+err.message,true));else stopAfterLogout();});
 }
