@@ -11,7 +11,7 @@ export const DEVICE_ID = 'anggrek_01';
 
 // EMQX Serverless: ubah menjadi wss://HOST:8084/mqtt
 // Boleh kosong; dashboard akan memakai Firebase/latest sebagai live fallback.
-export const MQTT_WSS_URL = '';
+export const MQTT_WSS_URL = 'y3915530.ala.asia-southeast1.emqxsl.com:8084/mqtt';
 export const MQTT_TOPIC = 'anggrek/anggrek_01/live';
 
 // DIUBAH: Email admin terisi otomatis; pengguna dashboard hanya mengetik password.
