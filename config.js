@@ -1,5 +1,3 @@
-// Konfigurasi ini BOLEH berada di frontend. Firebase API key bukan secret;
-// akses data harus dilindungi Firebase Authentication + Database Rules.
 export const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBjAtR3UAOO2QVMD5VuO3hbZV-YiamPCsA',
   authDomain: 'anggrek-monitoring.firebaseapp.com',
@@ -9,12 +7,9 @@ export const FIREBASE_CONFIG = {
 };
 export const DEVICE_ID = 'anggrek_01';
 
-// EMQX Serverless: ubah menjadi wss://HOST:8084/mqtt
-// Boleh kosong; dashboard akan memakai Firebase/latest sebagai live fallback.
-export const MQTT_WSS_URL = 'y3915530.ala.asia-southeast1.emqxsl.com:8084/mqtt';
+export const MQTT_WSS_URL = 'wss://y3915530.ala.asia-southeast1.emqxsl.com:8084/mqtt';
 export const MQTT_TOPIC = 'anggrek/anggrek_01/live';
+export const MQTT_USERNAME = 'anggrek_esp32';
+export const MQTT_PASSWORD = 'anggr3k123';
 
-// DIUBAH: Email admin terisi otomatis; pengguna dashboard hanya mengetik password.
-// Email ini adalah akun Firebase Authentication (bukan akun Google Project Owner saja).
-// Karena file frontend bersifat publik, gunakan password yang kuat dan aktifkan pembatasan Rules.
 export const ADMIN_EMAIL = 'anggrekmonitoring12@gmail.com';
