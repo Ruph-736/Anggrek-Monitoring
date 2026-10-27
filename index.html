@@ -4,8 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <meta name="theme-color" content="#0b1d34" />
-  <meta name="description" content="AnggrekMonitor — dashboard real-time suhu dan kelembapan anggrek berbasis ESP32." />
-  <title>AnggrekMonitor — Monitoring Tanaman</title>
+  <meta name="description" content="AnggrekSense — dashboard penelitian suhu dan kelembapan tanaman anggrek berbasis ESP32 + SHT30." />
+  <title>AnggrekSense — Dashboard Monitoring Anggrek</title>
+  <link rel="icon" href="icon-anggreksense.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -17,21 +18,22 @@
 <body>
 <div id="login-overlay" class="auth-overlay">
   <div class="login-card">
-    <div class="logo-block">✿</div>
-    <h1>AnggrekMonitor</h1>
-    <p>Masuk untuk memantau suhu dan kelembapan anggrek.</p>
+    <!-- DIUBAH: Logo AnggrekSense dan login cukup password -->
+    <img class="login-logo" src="logo-anggreksense.png" alt="AnggrekSense" />
+    <p>Dashboard penelitian suhu dan kelembapan tanaman anggrek.</p>
     <form id="login-form">
-      <label>Email Firebase</label><input id="login-email" required type="email" placeholder="admin@example.com" autocomplete="username" />
-      <label>Password</label><input id="login-password" required type="password" placeholder="••••••••" autocomplete="current-password" />
+      <label for="login-password">Password Dashboard</label>
+      <input id="login-password" required type="password" placeholder="Masukkan password admin Firebase" autocomplete="current-password" />
       <button class="primary-btn full" type="submit">Masuk ke Dashboard</button>
     </form>
     <div id="login-error" class="form-error" role="alert"></div>
-    <small>Login memakai Firebase Authentication. Hanya akun admin yang diberi akses dalam Database Rules.</small>
+    <small>Login aman menggunakan Firebase Authentication. Email admin sudah diatur otomatis pada <code>config.js</code>.</small>
   </div>
 </div>
 <div class="shell">
   <aside class="sidebar">
-    <div class="brand"><span class="brand-mark">✿</span><div><b>AnggrekMonitor</b><small>SMART PLANT SYSTEM</small></div></div>
+    <!-- DIUBAH: Brand memakai logo AnggrekSense, tanpa tagline -->
+    <div class="brand"><span class="brand-mark"><img src="icon-anggreksense.png" alt="" /></span><div><b>AnggrekSense</b></div></div>
     <div class="nav-label">MENU UTAMA</div>
     <button class="nav-item active" data-page="dashboard"><span class="nav-icon">▦</span><span>Dashboard</span></button>
     <button class="nav-item" data-page="history"><span class="nav-icon">◷</span><span>Riwayat Data</span></button>
@@ -53,7 +55,7 @@
         </div>
         <div class="chart-grid">
           <article class="panel chart-panel"><div class="panel-head"><div><h3>Grafik Suhu & Kelembapan</h3><p>Riwayat pengukuran berbasis Firebase</p></div><div class="periods" data-periods="dashboard"><button data-period="1h" class="active">1 Jam</button><button data-period="6h">6 Jam</button><button data-period="24h">24 Jam</button><button data-period="30d">1 Bulan</button></div></div><div class="chart-wrap"><canvas id="sensor-chart"></canvas></div><div class="chart-foot"><span class="legend"><i class="legend-orange"></i> Suhu (°C) &nbsp; <i class="legend-blue"></i> Kelembapan (%RH)</span><small id="chart-info">Belum ada data</small></div></article>
-          <article class="panel system-panel"><div class="panel-head"><div><h3>Status Sistem</h3><p>Kondisi koneksi & perangkat</p></div></div><div class="status-list"><div><span>Device ID</span><b id="status-id">anggrek_01</b></div><div><span>Sensor</span><b>SHT30 · I²C</b></div><div><span>Update MQTT</span><b>10 detik</b></div><div><span>Simpan Firebase</span><b>60 detik</b></div><div><span>Alamat sensor</span><b>0x44 / 0x45</b></div><div><span>Update terakhir</span><b id="system-updated">—</b></div></div><div class="hint">Dashboard tidak menampilkan data simulasi. Jika alat mati, angka terakhir tetap tampil dengan status <b>Offline</b>.</div></article>
+          <article class="panel system-panel"><div class="panel-head"><div><h3>Status Sistem</h3><p>Kondisi koneksi & perangkat</p></div></div><div class="status-list"><div><span>Device ID</span><b id="status-id">anggrek_01</b></div><div><span>Sensor</span><b>SHT30 · I²C</b></div><div><span>Update MQTT</span><b>5 detik</b></div><div><span>Simpan Firebase</span><b>60 detik</b></div><div><span>Alamat sensor</span><b>0x44 / 0x45</b></div><div><span>Update terakhir</span><b id="system-updated">—</b></div></div><div class="hint">Dashboard tidak menampilkan data simulasi. Jika alat mati, angka terakhir tetap tampil dengan status <b>Offline</b>.</div></article>
         </div>
         <article class="panel recent"><div class="panel-head"><div><h3>Log Pengukuran Terbaru</h3><p>Sepuluh pengukuran terakhir tersimpan</p></div><button class="small-btn" data-jump="history">Lihat Semua Riwayat →</button></div><div class="table-scroll"><table><thead><tr><th>Waktu (WIB)</th><th>Suhu (°C)</th><th>Kelembapan (%RH)</th><th>Jenis</th></tr></thead><tbody id="recent-rows"><tr><td colspan="4" class="empty-cell">Belum ada data.</td></tr></tbody></table></div></article>
       </section>
@@ -65,7 +67,7 @@
       <section class="page" id="page-device">
         <div class="section-heading"><div><span class="eyebrow">INFORMASI TEKNIS</span><h2>Informasi Perangkat</h2><p>Arsitektur dan parameter sistem monitoring.</p></div></div>
         <div class="info-cards"><article class="panel info-panel"><h3>Perangkat Keras</h3><div class="status-list"><div><span>Mikrokontroler</span><b>ESP32 DevKit</b></div><div><span>Sensor</span><b>SHT30</b></div><div><span>SDA</span><b>GPIO 21</b></div><div><span>SCL</span><b>GPIO 22</b></div><div><span>VCC</span><b>3.3 V</b></div><div><span>Alamat I²C</span><b>0x44 / 0x45</b></div></div></article><article class="panel info-panel"><h3>Komunikasi & Penyimpanan</h3><div class="status-list"><div><span>Live</span><b>EMQX MQTT TLS</b></div><div><span>Port MQTT</span><b>8883</b></div><div><span>Dashboard MQTT</span><b>WSS 8084 (opsional)</b></div><div><span>Database</span><b>Firebase Realtime DB</b></div><div><span>Log mentah</span><b>60 detik</b></div><div><span>Agregasi bulanan</span><b>Rata-rata per jam</b></div></div></article></div>
-        <article class="panel info-panel"><h3>Koneksi MQTT dari Browser (Opsional)</h3><p class="soft-copy">Secara default dashboard menampilkan data terkini dari Firebase. Jika ingin menerima pesan MQTT setiap 10 detik, masukkan kredensial <b>read-only</b> EMQX khusus dashboard. Username dan password hanya disimpan selama tab dibuka.</p><div class="inline-form"><label>Username MQTT<input id="mqtt-user" type="text" autocomplete="off" placeholder="viewer_anggrek" /></label><label>Password MQTT<input id="mqtt-pass" type="password" autocomplete="off" placeholder="Password EMQX" /></label><button class="primary-btn" id="mqtt-connect">Sambungkan MQTT</button><button class="small-btn" id="mqtt-disconnect">Putuskan</button></div><p class="footnote" id="mqtt-info">Isi MQTT_WSS_URL di config.js dahulu. Jangan gunakan kredensial admin EMQX.</p></article>
+        <article class="panel info-panel"><h3>Koneksi MQTT dari Browser (Opsional)</h3><p class="soft-copy">Secara default dashboard menampilkan data terkini dari Firebase. Jika ingin menerima pesan MQTT setiap 5 detik, masukkan kredensial <b>read-only</b> EMQX khusus dashboard. Username dan password hanya disimpan selama tab dibuka.</p><div class="inline-form"><label>Username MQTT<input id="mqtt-user" type="text" autocomplete="off" placeholder="viewer_anggrek" /></label><label>Password MQTT<input id="mqtt-pass" type="password" autocomplete="off" placeholder="Password EMQX" /></label><button class="primary-btn" id="mqtt-connect">Sambungkan MQTT</button><button class="small-btn" id="mqtt-disconnect">Putuskan</button></div><p class="footnote" id="mqtt-info">Isi MQTT_WSS_URL di config.js dahulu. Jangan gunakan kredensial admin EMQX.</p></article>
       </section>
       <section class="page" id="page-storage">
         <div class="section-heading"><div><span class="eyebrow">DATA MAINTENANCE</span><h2>Backup & Penyimpanan</h2><p>Backup dan pembersihan manual supaya tetap hemat paket gratis.</p></div></div>
@@ -73,7 +75,7 @@
         <article class="panel info-panel"><h3>Arsip Bulanan (CSV)</h3><p class="soft-copy">Pilih bulan, unduh semua data log mentah dan agregat per jam dalam satu CSV. Setelah <b>memastikan file backup tersimpan</b>, log mentah bulan yang sudah lebih dari 90 hari boleh dihapus. Ringkasan per jam tidak dihapus sehingga grafik bulanan tetap berfungsi untuk periode tersisa.</p><div class="archive-form"><label>Pilih bulan (UTC untuk pengelompokan)<input id="archive-month" type="month" /></label><button id="backup-month" class="primary-btn">↓ Backup CSV Bulanan</button><button id="cleanup-month" class="danger-btn">Hapus Log Bulan Ini</button></div><p id="archive-info" class="form-note">Penghapusan hanya tersedia setelah backup pada sesi browser ini dan hanya untuk bulan yang berakhir lebih dari 90 hari lalu.</p><div class="hint">Perhatian: backup CSV tersimpan di perangkat/browser, bukan otomatis di Firebase atau Cloud Storage. Simpan salinan tambahan di drive komputer/penyimpanan pribadi sebelum hapus data.</div></article>
       </section>
     </main>
-    <footer class="main-footer">ANGGREKMONITOR • ESP32 + SHT30 • EMQX CLOUD + FIREBASE REALTIME DATABASE <span>Waktu ditampilkan dalam WIB (Asia/Jakarta)</span></footer>
+    <footer class="main-footer">ANGGREKSENSE • ESP32 + SHT30 • EMQX CLOUD + FIREBASE REALTIME DATABASE <span>Waktu ditampilkan dalam WIB (Asia/Jakarta)</span></footer>
   </div>
 </div>
 </body>

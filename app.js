@@ -1,7 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import { getDatabase, ref, onValue, get, query, orderByChild, startAt, endAt, remove } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js';
-import { FIREBASE_CONFIG, DEVICE_ID, MQTT_WSS_URL, MQTT_TOPIC } from './config.js';
+import { FIREBASE_CONFIG, DEVICE_ID, MQTT_WSS_URL, MQTT_TOPIC, ADMIN_EMAIL } from './config.js';
 
 const $ = id => document.getElementById(id);
 const BASE = `devices/${DEVICE_ID}`;
@@ -176,7 +176,7 @@ async function backupMonth(){
     const [raw,hourly]=await Promise.all([readWholeMonth('logs',month),readWholeMonth('hourly',month)]);
     const all=[...raw,...hourly].sort((a,b)=>a.ts-b.ts);
     if(!all.length){$('archive-info').textContent='Belum ada data di bulan ini.';return;}
-    downloadCSV(`AnggrekMonitor_Backup_${month}.csv`,rowsToCSV(all));
+    downloadCSV(`AnggrekSense_Backup_${month}.csv`,rowsToCSV(all));
     state.backupMonth=month;
     $('archive-info').textContent=`Backup ${month}: ${raw.length} log mentah + ${hourly.length} ringkasan/jam. Periksa file yang diunduh sebelum hapus.`;
   }catch(e){toast('Backup gagal: '+e.message,true);$('archive-info').textContent='Backup gagal. Jangan hapus data.';}
@@ -244,7 +244,7 @@ function setupUI(){
   $('refresh-history').addEventListener('click',refreshHistory);
   $('prev-page').addEventListener('click',()=>{if(state.historyPage>0){state.historyPage--;renderHistoryTable();}});
   $('next-page').addEventListener('click',()=>{if((state.historyPage+1)*PER_PAGE<state.historyRows.length){state.historyPage++;renderHistoryTable();}});
-  $('export-period').addEventListener('click',()=>{if(!state.historyRows.length)return toast('Tidak ada data untuk diekspor.',true);downloadCSV(`AnggrekMonitor_${state.historyPeriod}_${new Date().toISOString().slice(0,10)}.csv`,rowsToCSV(state.historyRows));});
+  $('export-period').addEventListener('click',()=>{if(!state.historyRows.length)return toast('Tidak ada data untuk diekspor.',true);downloadCSV(`AnggrekSense_${state.historyPeriod}_${new Date().toISOString().slice(0,10)}.csv`,rowsToCSV(state.historyRows));});
   $('backup-month').addEventListener('click',backupMonth);
   $('cleanup-month').addEventListener('click',cleanupMonth);
   $('archive-month').value=new Date().toISOString().slice(0,7);
@@ -264,12 +264,24 @@ function main(){
     $('login-error').textContent='Isi dashboard/config.js dengan konfigurasi Firebase asli sebelum membuka dashboard.';
     return;
   }
+  if(!ADMIN_EMAIL || ADMIN_EMAIL.includes('GANTI_')){ $('login-error').textContent='Isi ADMIN_EMAIL pada config.js terlebih dahulu.'; return; }
   const app=initializeApp(FIREBASE_CONFIG);
   state.auth=getAuth(app);state.db=getDatabase(app);
   $('login-form').addEventListener('submit',async e=>{
     e.preventDefault();$('login-error').textContent='';
-    try{await signInWithEmailAndPassword(state.auth,$('login-email').value.trim(),$('login-password').value);$('login-password').value='';}
-    catch(err){$('login-error').textContent='Login gagal: '+err.message;}
+    // DIUBAH: Password-only UI; Firebase Authentication tetap memverifikasi email admin + password.
+    try{await signInWithEmailAndPassword(state.auth,ADMIN_EMAIL.trim(),$('login-password').value);$('login-password').value='';}
+    catch(err){
+      const messages={
+        'auth/invalid-credential':'Password salah atau akun admin belum dibuat di Firebase Authentication.',
+        'auth/invalid-email':'Email admin di config.js tidak valid.',
+        'auth/unauthorized-domain':'Domain website belum ditambahkan ke Firebase Authentication > Authorized domains.',
+        'auth/too-many-requests':'Terlalu banyak percobaan login. Coba lagi nanti.',
+        'auth/network-request-failed':'Koneksi internet atau akses Firebase terganggu.',
+        'auth/invalid-api-key':'apiKey Firebase di config.js belum benar.'
+      };
+      $('login-error').textContent=messages[err.code]||('Login gagal: '+err.message);
+    }
   });
   onAuthStateChanged(state.auth,user=>{if(user)startAfterLogin(user).catch(err=>toast('Dashboard gagal memuat: '+err.message,true));else stopAfterLogout();});
 }
