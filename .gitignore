@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+firmware/config.h
+*.pem
+*.key
+serviceAccountKey.json
+.DS_Store

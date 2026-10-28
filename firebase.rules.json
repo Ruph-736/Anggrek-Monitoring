@@ -1,0 +1,12 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "devices": {
+      "$device": {
+        "logs": { "$month": { ".indexOn": ["ts"] } },
+        "hourly": { "$month": { ".indexOn": ["ts"] } }
+      }
+    }
+  }
+}

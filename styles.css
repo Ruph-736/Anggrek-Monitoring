@@ -22,3 +22,7 @@
 .login-card form{gap:12px}.login-card label{margin-top:0}
 .login-card .full{margin-top:7px}
 @media(max-width:780px){.login-card{padding:27px 23px}.brand-mark{padding:0}}
+
+/* Pilihan Live, desain lama tetap. */
+.periods button[data-period="live"].active{background:#e6f8f2;color:#058468}
+@media(max-width:780px){.periods{overflow-x:auto;justify-content:flex-start}.periods button{flex:0 0 auto}}

@@ -1,8 +1,9 @@
 {
-  "name": "anggreksense-dashboard",
+  "name": "anggreksense-simple",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "version": "1.2.0",
+  "engines": {"node": ">=22"},
   "dependencies": {
     "firebase-admin": "^13.0.0",
     "mqtt": "^5.10.4",

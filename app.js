@@ -1,1276 +1,210 @@
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-import {
-  getAuth, onAuthStateChanged, signInWithCustomToken, signOut
-} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
-import {
-  getDatabase, ref, onValue, get, query,
-  orderByChild, startAt, endAt, remove
-} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js';
-import { FIREBASE_CONFIG, DEVICE_ID } from './config.js';
-
-const $ = id => document.getElementById(id);
-const BASE = `devices/${DEVICE_ID}`;
-
-const WIB = new Intl.DateTimeFormat('id-ID', {
-  timeZone:'Asia/Jakarta',
-  day:'2-digit',month:'short',year:'numeric',
-  hour:'2-digit',minute:'2-digit',second:'2-digit',
-  hour12:false
-});
-
-const SHORT_WIB = new Intl.DateTimeFormat('id-ID', {
-  timeZone:'Asia/Jakarta',
-  day:'2-digit',month:'short',
-  hour:'2-digit',minute:'2-digit'
-});
-
-const PERIODS = {
-  '1h':3600000,
-  '6h':21600000,
-  '24h':86400000,
-  '30d':2592000000
-};
-
-const PER_PAGE = 50;
-
-// BARU: Grafik LIVE menampilkan 15 menit terakhir.
-const LIVE_WINDOW_MS = 15 * 60 * 1000;
-const LIVE_MAX_POINTS = 400;
-
-const state = {
-  page:'dashboard',
-  dashboardPeriod:'live',
-  historyPeriod:'24h',
-  historyLogPeriod:'24h',
-  liveRows:[],
-  historyPage:0,
-  dashboardRows:[],
-  historyRows:[],
-  latest:null,
-  mqttLast:null,
-  mqttOnline:false,
-  firebaseOnline:false,
-  liveSocket:null,
-  liveReconnect:null,
-  liveGeneration:0,
-  liveRetry:0,
-  wantLive:false,
-  unsubLatest:null,
-  auth:null,
-  db:null,
-  chartDashboard:null,
-  chartHistory:null,
-  backupMonth:''
-};
-
-function formatTime(ms,short=false) {
-  return Number.isFinite(Number(ms)) && Number(ms)>0
-    ? (short?SHORT_WIB:WIB).format(new Date(Number(ms)))
-    : '—';
+// AnggrekSense: login cookie Vercel; Firebase dibaca lewat backend saja.
+import { DEVICE_ID } from './config.js';
+const $=id=>document.getElementById(id);
+const WIB=new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Jakarta',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+const SHORT=new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Jakarta',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+const PERIODS={'1h':3600000,'6h':21600000,'24h':86400000,'30d':2592000000,live:900000};
+const state={loggedIn:false,page:'dashboard',dashboardPeriod:'live',historyPeriod:'24h',historyLogPeriod:'24h',latest:null,mqttLast:null,mqttOnline:false,firebaseOnline:false,liveRows:[],dashboardRows:[],historyRows:[],historyPage:0,chartDashboard:null,chartHistory:null,liveSocket:null,liveReconnect:null,wantLive:false,liveGeneration:0,liveRetry:0};
+const PER_PAGE=50;
+const tformat=(ts,short=false)=>Number.isFinite(Number(ts))&&Number(ts)>0?(short?SHORT:WIB).format(Number(ts)):'—';
+const num=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'--';
+function note(message,bad=false){$('notice').textContent=message;$('notice').classList.toggle('error',bad);$('notice').classList.remove('hidden');}
+async function api(url,options={}){
+  const res=await fetch(url,{cache:'no-store',credentials:'same-origin',...options});
+  let body;try{body=await res.json();}catch{throw new Error('Respons server bukan JSON');}
+  if(!res.ok)throw new Error(body.error||`HTTP ${res.status}`);
+  return body;
 }
-
-function fmt(v) {
-  return Number.isFinite(Number(v))
-    ? Number(v).toFixed(2)
-    : '--';
+function isReading(d){return !!d&&Number.isFinite(Number(d.ts))&&Number.isFinite(Number(d.temperature_c))&&Number.isFinite(Number(d.humidity_percent));}
+function readRow(r,kind){return{...r,ts:Number(r.ts),temperature_c:Number(r.temperature_c),humidity_percent:Number(r.humidity_percent),kind};}
+function recentRange(period){return [Date.now()-PERIODS[period],Date.now()];}
+function createChart(canvas){
+  if(!window.Chart)throw new Error('Library Chart.js tidak termuat');
+  return new Chart(canvas.getContext('2d'),{type:'line',data:{datasets:[
+    {label:'Suhu (°C)',data:[],borderColor:'#f49c5c',backgroundColor:'rgba(244,156,92,.08)',pointRadius:0,pointHoverRadius:4,borderWidth:2.4,tension:.22,spanGaps:false,yAxisID:'t'},
+    {label:'Kelembapan (%RH)',data:[],borderColor:'#208de1',backgroundColor:'rgba(32,141,225,.08)',pointRadius:0,pointHoverRadius:4,borderWidth:2.4,tension:.22,spanGaps:false,yAxisID:'h'}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,normalized:true,interaction:{mode:'nearest',intersect:false},plugins:{legend:{display:false},tooltip:{callbacks:{title:a=>a.length?tformat(a[0].parsed.x):''}}},
+      scales:{x:{type:'linear',ticks:{color:'#91a0b4',maxTicksLimit:6,callback:v=>tformat(v,true),font:{size:10}},grid:{color:'#eef2f7'},border:{display:false}},
+        t:{type:'linear',position:'left',ticks:{color:'#b18d75',font:{size:10}},grid:{color:'#eef2f7'},border:{display:false},title:{display:true,text:'Suhu (°C)',color:'#c39475'}},
+        h:{type:'linear',position:'right',min:0,max:100,ticks:{color:'#659ac3',font:{size:10}},grid:{drawOnChartArea:false},border:{display:false},title:{display:true,text:'Kelembapan (%)',color:'#659ac3'}}}}
+  });
 }
-
-function toast(msg,bad=false) {
-  const e=$('notice');
-  e.textContent=msg;
-  e.classList.toggle('error',bad);
-  e.classList.remove('hidden');
-}
-
-function path(type,month) {
-  return `${BASE}/${type}/${month}`;
-}
-
-function monthKeyUTC(ts) {
-  const d=new Date(ts);
-  return `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}`;
-}
-
-function monthsBetween(from,to) {
+function chartPoints(rows,key,period){
+  const gap=period==='live'?5000:period==='30d'?3600000:60000;
   const out=[];
-  const d=new Date(from);
-  d.setUTCDate(1);
-  d.setUTCHours(0,0,0,0);
-
-  const end=new Date(to);
-  end.setUTCDate(1);
-  end.setUTCHours(0,0,0,0);
-
-  while(d<=end && out.length<18) {
-    out.push(monthKeyUTC(d.getTime()));
-    d.setUTCMonth(d.getUTCMonth()+1);
-  }
+  rows.forEach((r,i)=>{if(i&&r.ts-rows[i-1].ts>gap*2.8)out.push({x:Math.round((r.ts+rows[i-1].ts)/2),y:null});out.push({x:r.ts,y:r[key]});});
   return out;
 }
-
-function dateRange(period) {
-  const end=Date.now();
-  const duration=period==='live'
-    ? LIVE_WINDOW_MS
-    : PERIODS[period];
-  return [end-duration,end];
-}
-
-function validReading(row) {
-  return row &&
-    Number.isFinite(Number(row.ts)) &&
-    Number.isFinite(Number(row.temperature_c)) &&
-    Number.isFinite(Number(row.humidity_percent));
-}
-
-function cleanRow(row,kind) {
-  return {
-    ...row,
-    ts:Number(row.ts),
-    temperature_c:Number(row.temperature_c),
-    humidity_percent:Number(row.humidity_percent),
-    kind
-  };
-}
-
-// MEMBACA RIWAYAT FIREBASE
-async function fetchRange(type,from,to) {
-  const months=monthsBetween(from,to);
-
-  const results=await Promise.all(
-    months.map(async month=>{
-      const q=query(
-        ref(state.db,path(type,month)),
-        orderByChild('ts'),
-        startAt(from),
-        endAt(to)
-      );
-
-      const snap=await get(q);
-      if(!snap.exists())return [];
-
-      return Object.values(snap.val())
-        .filter(validReading)
-        .map(v=>cleanRow(
-          v,
-          type==='hourly'?'Rata-rata/jam':'Pengukuran'
-        ));
-    })
-  );
-
-  return results.flat().sort((a,b)=>a.ts-b.ts);
-}
-
-// MEMBUAT GRAFIK
-function makeChart(canvas) {
-  if(!window.Chart) {
-    throw new Error('Chart.js belum termuat.');
-  }
-
-  return new window.Chart(canvas.getContext('2d'),{
-    type:'line',
-    data:{
-      datasets:[
-        {
-          label:'Suhu (°C)',
-          data:[],
-          borderColor:'#f49c5c',
-          backgroundColor:'rgba(244,156,92,.08)',
-          yAxisID:'t',
-          pointRadius:0,
-          pointHoverRadius:4,
-          borderWidth:2.4,
-          tension:.22,
-          spanGaps:false
-        },
-        {
-          label:'Kelembapan (%RH)',
-          data:[],
-          borderColor:'#208de1',
-          backgroundColor:'rgba(32,141,225,.08)',
-          yAxisID:'h',
-          pointRadius:0,
-          pointHoverRadius:4,
-          borderWidth:2.4,
-          tension:.22,
-          spanGaps:false
-        }
-      ]
-    },
-    options:{
-      responsive:true,
-      maintainAspectRatio:false,
-      interaction:{mode:'nearest',intersect:false},
-      animation:false,
-      normalized:true,
-      plugins:{
-        legend:{display:false},
-        tooltip:{
-          callbacks:{
-            title:items=>items.length
-              ? formatTime(items[0].parsed.x)
-              : ''
-          }
-        }
-      },
-      scales:{
-        x:{
-          type:'linear',
-          ticks:{
-            color:'#91a0b4',
-            maxTicksLimit:6,
-            callback:v=>formatTime(v,true),
-            font:{size:10}
-          },
-          grid:{color:'#eef2f7'},
-          border:{display:false}
-        },
-        t:{
-          type:'linear',
-          position:'left',
-          ticks:{color:'#b18d75',font:{size:10}},
-          grid:{color:'#eef2f7'},
-          border:{display:false},
-          title:{
-            display:true,
-            text:'Suhu (°C)',
-            color:'#c39475',
-            font:{size:10}
-          }
-        },
-        h:{
-          type:'linear',
-          position:'right',
-          min:0,
-          max:100,
-          ticks:{color:'#659ac3',font:{size:10}},
-          grid:{drawOnChartArea:false},
-          border:{display:false},
-          title:{
-            display:true,
-            text:'Kelembapan (%)',
-            color:'#659ac3',
-            font:{size:10}
-          }
-        }
-      }
-    }
-  });
-}
-
-function chartPoints(rows,field,period) {
-  const step=period==='live'
-    ? 5000
-    : period==='30d'
-      ? 3600000
-      : 60000;
-
-  const points=[];
-
-  for(let i=0;i<rows.length;i++) {
-    if(i>0 && rows[i].ts-rows[i-1].ts>step*2.8) {
-      points.push({
-        x:Math.round((rows[i].ts+rows[i-1].ts)/2),
-        y:null
-      });
-    }
-
-    points.push({
-      x:rows[i].ts,
-      y:rows[i][field]
-    });
-  }
-
-  return points;
-}
-
-function renderChart(chart,rows,period) {
+function draw(chart,rows,period){
   if(!chart)return;
-
-  chart.data.datasets[0].data=
-    chartPoints(rows,'temperature_c',period);
-
-  chart.data.datasets[1].data=
-    chartPoints(rows,'humidity_percent',period);
-
-  const [start,end]=dateRange(period);
-
-  chart.options.scales.x.min=start;
-  chart.options.scales.x.max=end;
-
-  chart.update('none');
+  chart.data.datasets[0].data=chartPoints(rows,'temperature_c',period);
+  chart.data.datasets[1].data=chartPoints(rows,'humidity_percent',period);
+  const [min,max]=recentRange(period);chart.options.scales.x.min=min;chart.options.scales.x.max=max;chart.update('none');
 }
-
-// BARU: MENYIMPAN DATA LIVE SEMENTARA
-function rememberLiveReading(row) {
-  const now=Date.now();
-  const cutoff=now-LIVE_WINDOW_MS;
-
-  if(row.ts>=cutoff && row.ts<=now+60000) {
-    const index=state.liveRows.findIndex(
-      item=>item.ts===row.ts
-    );
-
-    if(index>=0) {
-      state.liveRows[index]=row;
-    } else {
-      state.liveRows.push(row);
-    }
-
+function renderRows(target,rows,history=false,page=0){
+  const limit=history?PER_PAGE:10;const list=[...rows].reverse().slice(page*limit,(page+1)*limit);
+  if(!list.length){target.innerHTML=`<tr><td colspan="${history?5:4}" class="empty-cell">Tidak ada data.</td></tr>`;return;}
+  target.innerHTML=list.map((r,i)=>`<tr>${history?`<td>${page*limit+i+1}</td>`:''}<td>${tformat(r.ts)}</td><td>${num(r.temperature_c)}</td><td>${num(r.humidity_percent)}</td><td>${r.kind||'Log'}</td></tr>`).join('');
+}
+function renderHistoryTable(){
+  const pages=Math.max(1,Math.ceil(state.historyRows.length/PER_PAGE));state.historyPage=Math.min(state.historyPage,pages-1);
+  renderRows($('history-rows'),state.historyRows,true,state.historyPage);
+  $('log-count').textContent=`${state.historyRows.length.toLocaleString('id-ID')} pengukuran`;
+  $('page-count').textContent=`Halaman ${state.historyPage+1} dari ${pages}`;
+  $('prev-page').disabled=state.historyPage===0;$('next-page').disabled=state.historyPage===pages-1;
+}
+function drawLive(){
+  const now=Date.now();state.liveRows=state.liveRows.filter(r=>r.ts>=now-PERIODS.live&&r.ts<=now+30000).slice(-400);
+  const msg=state.mqttOnline?`${state.liveRows.length} titik • Live 15 menit terakhir`:`MQTT OFF • ${state.liveRows.length} titik sementara`;
+  if(state.dashboardPeriod==='live'){draw(state.chartDashboard,state.liveRows,'live');$('chart-info').textContent=msg;}
+  if(state.historyPeriod==='live'){draw(state.chartHistory,state.liveRows,'live');$('history-chart-info').textContent=msg+' • Tabel tetap dari Firebase';}
+}
+function rememberLive(row){
+  if(!isReading(row))return;
+  const data=readRow(row,'MQTT');state.mqttLast=data;
+  if(data.ts>Date.now()-PERIODS.live&&data.ts<Date.now()+30000){
+    const i=state.liveRows.findIndex(x=>x.ts===data.ts);if(i>=0)state.liveRows[i]=data;else state.liveRows.push(data);
     state.liveRows.sort((a,b)=>a.ts-b.ts);
   }
-
-  state.liveRows=state.liveRows
-    .filter(item=>
-      item.ts>=cutoff && item.ts<=now+60000
-    )
-    .slice(-LIVE_MAX_POINTS);
-
-  renderLiveCharts();
+  drawLive();applyLive();
 }
-
-// BARU: UPDATE GRAFIK LIVE SETIAP PESAN MQTT
-function renderLiveCharts() {
-  const now=Date.now();
-
-  state.liveRows=state.liveRows.filter(row=>
-    row.ts>=now-LIVE_WINDOW_MS &&
-    row.ts<=now+60000
-  );
-
-  const rows=state.liveRows;
-
-  const info=!state.mqttOnline
-    ? `MQTT terputus • ${rows.length} titik tersimpan sementara`
-    : rows.length
-      ? `${rows.length} titik • 15 menit terakhir • ${formatTime(rows[rows.length-1].ts,true)} WIB`
-      : 'Menunggu data MQTT dari perangkat (±5 detik)';
-
-  if(state.dashboardPeriod==='live') {
-    renderChart(state.chartDashboard,rows,'live');
-    $('chart-info').textContent=info;
-  }
-
-  if(state.historyPeriod==='live') {
-    renderChart(state.chartHistory,rows,'live');
-    $('history-chart-info').textContent=
-      info+' • Tabel tetap dari Firebase';
-  }
+function applyLive(){
+  const mqttFresh=state.mqttOnline&&state.mqttLast&&Math.abs(Date.now()-state.mqttLast.ts)<45000;
+  const data=mqttFresh?state.mqttLast:state.latest;
+  $('metric-temp').textContent=data?num(data.temperature_c):'--';$('metric-hum').textContent=data?num(data.humidity_percent):'--';
+  const online=data&&Date.now()-data.ts<180000&&Date.now()-data.ts>=-30000;
+  $('device-status').textContent=!data?'Menunggu':online?'Online':'Offline';
+  $('device-dot').className='status-indicator'+(!data?'':online?' online':' offline');
+  $('last-time').textContent=data?'Terakhir: '+tformat(data.ts):'Belum ada data';$('system-updated').textContent=data?tformat(data.ts):'—';
+  $('data-source').textContent=mqttFresh?'LIVE • EMQX MQTT':'FIREBASE • DATABASE';
+  $('mqtt-status').textContent=state.mqttOnline?'MQTT: LIVE':'MQTT: OFF';$('mqtt-status').classList.toggle('on',state.mqttOnline);
+  $('firebase-status').textContent=state.firebaseOnline?'Firebase: Terhubung':'Firebase: Belum terhubung';
 }
-
-// TABEL PENGUKURAN
-function renderTable(tbody,rows,history=false,page=0) {
-  const count=history?PER_PAGE:10;
-
-  const show=[...rows]
-    .reverse()
-    .slice(page*count,(page+1)*count);
-
-  if(!show.length) {
-    tbody.innerHTML=`<tr><td colspan="${history?5:4}" class="empty-cell">Tidak ada data pada periode ini.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML=show.map((row,i)=>history
-    ? `<tr><td>${page*count+i+1}</td><td>${formatTime(row.ts)}</td><td>${fmt(row.temperature_c)}</td><td>${fmt(row.humidity_percent)}</td><td>${row.kind}</td></tr>`
-    : `<tr><td>${formatTime(row.ts)}</td><td>${fmt(row.temperature_c)}</td><td>${fmt(row.humidity_percent)}</td><td>${row.kind}</td></tr>`
-  ).join('');
+async function refreshLatest(){
+  if(!state.loggedIn)return;
+  try{const d=(await api('/api/data?type=latest')).data;state.latest=isReading(d)?readRow(d,'Log'):null;state.firebaseOnline=true;applyLive();}
+  catch(e){state.firebaseOnline=false;applyLive();}
 }
-
-function renderHistoryTable() {
-  const rows=state.historyRows;
-  const pages=Math.max(1,Math.ceil(rows.length/PER_PAGE));
-
-  state.historyPage=Math.min(
-    state.historyPage,
-    pages-1
-  );
-
-  renderTable(
-    $('history-rows'),
-    rows,
-    true,
-    state.historyPage
-  );
-
-  $('log-count').textContent=
-    `${rows.length.toLocaleString('id-ID')} data pada periode terpilih`;
-
-  $('page-count').textContent=
-    `Halaman ${state.historyPage+1} dari ${pages}`;
-
-  $('prev-page').disabled=state.historyPage===0;
-  $('next-page').disabled=state.historyPage>=pages-1;
+async function refreshDashboard(){
+  if(!state.loggedIn)return;
+  const period=state.dashboardPeriod;const fetchPeriod=period==='live'?'1h':period;
+  if(period==='live')drawLive();
+  try{const response=await api(`/api/data?type=range&period=${fetchPeriod}`);
+    if(state.dashboardPeriod!==period)return;
+    const rows=(response.rows||[]).filter(isReading).map(r=>readRow(r,fetchPeriod==='30d'?'Rata-rata/jam':'Log'));
+    state.dashboardRows=rows;renderRows($('recent-rows'),rows);
+    if(period!=='live'){draw(state.chartDashboard,rows,period);$('chart-info').textContent=`${rows.length} titik • Firebase`;}state.firebaseOnline=true;applyLive();
+  }catch(e){note('Gagal memuat grafik: '+e.message,true);state.firebaseOnline=false;applyLive();}
 }
-
-// DATA GRAFIK DASHBOARD
-async function refreshDashboard() {
-  if(!state.db || !state.auth?.currentUser)return;
-
-  const period=state.dashboardPeriod;
-
-  if(period==='live')renderLiveCharts();
-
-  // Mode Live: grafik MQTT, tabel terbaru Firebase.
-  const fetchPeriod=period==='live'?'1h':period;
-  const [from,to]=dateRange(fetchPeriod);
-
-  try {
-    const rows=await fetchRange(
-      fetchPeriod==='30d'?'hourly':'logs',
-      from,to
-    );
-
-    if(period!==state.dashboardPeriod)return;
-
-    state.dashboardRows=rows;
-
-    if(period!=='live') {
-      renderChart(state.chartDashboard,rows,period);
-
-      $('chart-info').textContent=
-        `${rows.length.toLocaleString('id-ID')} titik • ${period==='30d'?'Rata-rata per jam':'Data per menit'} (Firebase)`;
-    }
-
-    renderTable($('recent-rows'),rows);
-
-    state.firebaseOnline=true;
-    updateConnectivity();
-
-  }catch(e) {
-    toast('Gagal membaca grafik Firebase: '+e.message,true);
-    state.firebaseOnline=false;
-    updateConnectivity();
-  }
-}
-
-// DATA GRAFIK RIWAYAT
-async function refreshHistory() {
-  if(!state.db || !state.auth?.currentUser)return;
-
+async function refreshHistory(){
+  if(!state.loggedIn)return;
   const period=state.historyPeriod;
-
-  if(period==='live') {
-    renderLiveCharts();
-    return;
-  }
-
-  const [from,to]=dateRange(period);
-
-  try {
-    const rows=await fetchRange(
-      period==='30d'?'hourly':'logs',
-      from,to
-    );
-
-    if(period!==state.historyPeriod)return;
-
-    state.historyLogPeriod=period;
-    state.historyRows=rows;
-    state.historyPage=0;
-
-    renderChart(state.chartHistory,rows,period);
-
-    $('history-chart-info').textContent=
-      `${rows.length.toLocaleString('id-ID')} titik • ${period==='30d'?'Agregasi per jam':'Log per menit'} (Firebase)`;
-
-    renderHistoryTable();
-
-    state.firebaseOnline=true;
-    updateConnectivity();
-
-  }catch(e) {
-    toast('Gagal memuat riwayat: '+e.message,true);
-    state.firebaseOnline=false;
-    updateConnectivity();
-  }
+  if(period==='live'){drawLive();return;}
+  try{const response=await api(`/api/data?type=range&period=${period}`);
+    if(state.historyPeriod!==period)return;
+    state.historyRows=(response.rows||[]).filter(isReading).map(r=>readRow(r,period==='30d'?'Rata-rata/jam':'Log'));
+    state.historyLogPeriod=period;state.historyPage=0;draw(state.chartHistory,state.historyRows,period);
+    $('history-chart-info').textContent=`${state.historyRows.length} titik • Firebase`;renderHistoryTable();state.firebaseOnline=true;applyLive();
+  }catch(e){note('Gagal membaca riwayat: '+e.message,true);state.firebaseOnline=false;applyLive();}
 }
-
-// MEMPERBARUI NILAI SUHU, KELEMBAPAN, STATUS
-function applyLive() {
-  const liveMqtt=
-    state.mqttOnline &&
-    state.mqttLast &&
-    Date.now()-state.mqttLast.ts<45000;
-
-  const data=liveMqtt?state.mqttLast:state.latest;
-
-  $('metric-temp').textContent=data
-    ? fmt(data.temperature_c)
-    : '--';
-
-  $('metric-hum').textContent=data
-    ? fmt(data.humidity_percent)
-    : '--';
-
-  const age=data?Date.now()-data.ts:Infinity;
-  const live=age>=-30000 && age<=180000;
-
-  $('device-status').textContent=!data
-    ? 'Menunggu'
-    : live?'Online':'Offline';
-
-  $('device-dot').className=
-    'status-indicator'+(
-      !data?'':live?' online':' offline'
-    );
-
-  $('last-time').textContent=data
-    ? `Terakhir: ${formatTime(data.ts)}`
-    : 'Belum ada data';
-
-  $('system-updated').textContent=data
-    ? formatTime(data.ts)
-    : '—';
-
-  $('data-source').textContent=liveMqtt
-    ? 'LIVE • EMQX MQTT'
-    : 'FIREBASE • DATABASE';
-}
-
-function updateConnectivity() {
-  $('mqtt-status').textContent=
-    state.mqttOnline?'MQTT: LIVE':'MQTT: OFF';
-
-  $('mqtt-status').classList.toggle(
-    'on',state.mqttOnline
-  );
-
-  $('firebase-status').textContent=
-    state.firebaseOnline
-      ? 'Firebase: Terhubung'
-      : 'Firebase: Belum terhubung';
-
-  applyLive();
-
-  if(
-    state.dashboardPeriod==='live' ||
-    state.historyPeriod==='live'
-  ) {
-    renderLiveCharts();
-  }
-}
-
-// FIREBASE LATEST
-function subscribeLatest() {
-  if(state.unsubLatest) {
-    state.unsubLatest();
-    state.unsubLatest=null;
-  }
-
-  state.unsubLatest=onValue(
-    ref(state.db,`${BASE}/latest`),
-    snap=>{
-      const value=snap.val();
-
-      state.latest=validReading(value)
-        ? cleanRow(value,'Pengukuran')
-        : null;
-
-      state.firebaseOnline=true;
-      updateConnectivity();
-    },
-    e=>{
-      state.firebaseOnline=false;
-      toast(
-        'Tidak punya izin membaca latest. Periksa FIREBASE_OWNER_UID dan Rules: '+e.message,
-        true
-      );
-      updateConnectivity();
-    }
-  );
-}
-
-// NAVIGASI HALAMAN
-function navigate(page) {
-  state.page=page;
-
-  document.querySelectorAll('.page').forEach(e=>
-    e.classList.toggle(
-      'active',
-      e.id===`page-${page}`
-    )
-  );
-
-  document.querySelectorAll('.nav-item').forEach(e=>
-    e.classList.toggle(
-      'active',
-      e.dataset.page===page
-    )
-  );
-
-  const label={
-    dashboard:['Dashboard','Monitoring Dashboard'],
-    history:['Riwayat Data','Riwayat Pengukuran'],
-    device:['Perangkat','Informasi Perangkat'],
-    storage:['Penyimpanan','Backup & Penyimpanan']
-  }[page];
-
-  $('breadcrumb-title').textContent=label[0];
-  $('top-title').textContent=label[1];
-
-  if(page==='dashboard') {
-    refreshDashboard();
-    setTimeout(()=>state.chartDashboard?.resize(),50);
-  }
-
-  if(page==='history') {
-    refreshHistory();
-    setTimeout(()=>state.chartHistory?.resize(),50);
-  }
-
+function navigate(page){
+  state.page=page;document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.id===`page-${page}`));
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
+  const titles={dashboard:['Dashboard','Monitoring Dashboard'],history:['Riwayat Data','Riwayat Pengukuran'],device:['Perangkat','Informasi Perangkat'],storage:['Penyimpanan','Backup & Penyimpanan']};
+  $('breadcrumb-title').textContent=titles[page][0];$('top-title').textContent=titles[page][1];
+  if(page==='dashboard'){refreshDashboard();setTimeout(()=>state.chartDashboard?.resize(),50);}
+  if(page==='history'){refreshHistory();setTimeout(()=>state.chartHistory?.resize(),50);}
   window.scrollTo({top:0,behavior:'smooth'});
 }
-
-// EKSPOR CSV
-function downloadCSV(name,rows) {
-  const esc=v=>{
-    let s=String(v??'');
-
-    if(/^[=+@-]/.test(s) && isNaN(Number(s))) {
-      s="'"+s;
-    }
-
-    return `"${s.replaceAll('"','""')}"`;
-  };
-
-  const content='\uFEFF'+rows
-    .map(r=>r.map(esc).join(','))
-    .join('\r\n');
-
-  const url=URL.createObjectURL(
-    new Blob([content],{
-      type:'text/csv;charset=utf-8'
-    })
-  );
-
-  const a=document.createElement('a');
-  a.href=url;
-  a.download=name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-
-  setTimeout(()=>URL.revokeObjectURL(url),15000);
+function downloadCSV(name,rows){
+  const esc=v=>{let s=String(v??'');if(/^[=+@-]/.test(s)&&Number.isNaN(Number(s)))s="'"+s;return `"${s.replaceAll('"','""')}"`;};
+  const content='\uFEFF'+rows.map(r=>r.map(esc).join(',')).join('\r\n');
+  const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
-
-function rowsToCSV(rows) {
-  return [
-    [
-      'jenis',
-      'waktu_wib',
-      'timestamp_ms',
-      'temperature_c',
-      'humidity_percent',
-      'jumlah_sampel'
-    ],
-    ...rows.map(r=>[
-      r.kind,
-      formatTime(r.ts),
-      r.ts,
-      r.temperature_c,
-      r.humidity_percent,
-      r.count??''
-    ])
-  ];
-}
-
-function monthRange(month) {
-  const y=Number(month.slice(0,4));
-  const m=Number(month.slice(4,6))-1;
-
-  if(y<2020 || m<0 || m>11) {
-    throw new Error('Bulan tidak valid');
-  }
-
-  return [
-    Date.UTC(y,m,1),
-    Date.UTC(y,m+1,1)
-  ];
-}
-
-async function readWholeMonth(type,month) {
-  const snap=await get(
-    ref(state.db,path(type,month))
-  );
-
-  return snap.exists()
-    ? Object.values(snap.val())
-        .filter(validReading)
-        .map(v=>cleanRow(
-          v,
-          type==='logs'?'Pengukuran':'Rata-rata/jam'
-        ))
-    : [];
-}
-
-// BACKUP DATA BULANAN
-async function backupMonth() {
-  const input=$('archive-month').value;
-
-  if(!/^\d{4}-\d{2}$/.test(input)) {
-    return toast('Pilih bulan arsip terlebih dahulu.',true);
-  }
-
-  const month=input.replace('-','');
-  state.backupMonth='';
-
-  $('archive-info').textContent=
-    'Mengambil data Firebase untuk CSV…';
-
-  try {
-    const [raw,hourly]=await Promise.all([
-      readWholeMonth('logs',month),
-      readWholeMonth('hourly',month)
-    ]);
-
-    const all=[...raw,...hourly].sort(
-      (a,b)=>a.ts-b.ts
-    );
-
-    if(!all.length) {
-      $('archive-info').textContent=
-        'Belum ada data di bulan ini.';
-      return;
-    }
-
-    downloadCSV(
-      `AnggrekSense_Backup_${month}.csv`,
-      rowsToCSV(all)
-    );
-
-    state.backupMonth=month;
-
-    $('archive-info').textContent=
-      `Backup ${month}: ${raw.length} log mentah + ${hourly.length} ringkasan/jam. Periksa file yang diunduh sebelum hapus.`;
-
-  }catch(e) {
-    toast('Backup gagal: '+e.message,true);
-    $('archive-info').textContent=
-      'Backup gagal. Jangan hapus data.';
-  }
-}
-
-// PENGHAPUSAN LOG LAMA
-async function cleanupMonth() {
+function csvRows(rows){return[['jenis','waktu_wib','timestamp_ms','temperature_c','humidity_percent','jumlah_sampel'],...rows.map(r=>[r.kind||'Log',tformat(r.ts),r.ts,r.temperature_c,r.humidity_percent,r.count||''])];}
+async function backupMonth(){
   const month=$('archive-month').value.replace('-','');
-
-  if(!/^\d{6}$/.test(month)) {
-    return toast('Pilih bulan yang valid.',true);
-  }
-
-  const [,monthEnd]=monthRange(month);
-
-  if(monthEnd>Date.now()-90*86400000) {
-    return toast(
-      'Hanya log dari bulan yang berakhir lebih dari 90 hari lalu dapat dihapus.',
-      true
-    );
-  }
-
-  if(state.backupMonth!==month) {
-    return toast(
-      'Wajib backup CSV bulan yang sama terlebih dahulu.',
-      true
-    );
-  }
-
-  const answer=prompt(
-    `Ini menghapus permanen LOG MENTAH bulan ${month}, namun ringkasan per jam tetap ada. Ketik HAPUS ${month} untuk lanjut:`
-  );
-
-  if(answer!==`HAPUS ${month}`)return;
-
-  try {
-    await remove(
-      ref(state.db,path('logs',month))
-    );
-
-    state.backupMonth='';
-
-    $('archive-info').textContent=
-      `Log ${month} sudah dibersihkan. Ringkasan jam tetap tersimpan.`;
-
-    toast(`Log mentah bulan ${month} berhasil dihapus.`);
-
-  }catch(e) {
-    toast('Penghapusan gagal: '+e.message,true);
-  }
-}
-
-// MQTT OTOMATIS MELALUI BACKEND VERCEL
-// Password EMQX tidak ada di frontend.
-
-function setLiveInfo(message) {
-  $('mqtt-info').textContent=message;
-}
-
-function updateLiveStatus(connected,message) {
-  state.mqttOnline=Boolean(connected);
-
-  if(message)setLiveInfo(message);
-
-  updateConnectivity();
-}
-
-function disconnectMQTT(showMessage=true) {
-  state.wantLive=false;
-  state.liveGeneration++;
-
-  clearTimeout(state.liveReconnect);
-  state.liveReconnect=null;
-
-  const old=state.liveSocket;
-  state.liveSocket=null;
-
-  if(old) {
-    try {
-      old.close(1000,'Disconnect');
-    }catch(e) {
-      console.warn(e);
+  if(!/^20\d{4}$/.test(month))return note('Pilih bulan terlebih dahulu',true);
+  const button=$('backup-month');button.disabled=true;
+  const all=[];
+  try{
+    for(let part=0;part<6;part++){
+      $('archive-info').textContent=`Mengambil log Firebase ${part+1}/6 bagian...`;
+      const result=await api(`/api/data?type=month&month=${month}&part=${part}`);
+      all.push(...(result.rows||[]).filter(isReading).map(r=>readRow(r,r.kind||'Log')));
     }
-  }
-
-  state.liveRetry=0;
-  state.mqttLast=null;
-
-  updateLiveStatus(
-    false,
-    showMessage
-      ? 'MQTT diputuskan. Klik Sambungkan Ulang.'
-      : null
-  );
+    if(!all.length){$('archive-info').textContent='Bulan ini belum ada data';return;}
+    all.sort((a,b)=>a.ts-b.ts);
+    downloadCSV(`AnggrekSense_Backup_${month}.csv`,csvRows(all));
+    $('archive-info').textContent=`Backup ${month}: ${all.length} baris. Data Firebase tidak dihapus.`;
+  }catch(e){$('archive-info').textContent='Backup gagal: '+e.message;}
+  finally{button.disabled=false;}
 }
-
-function scheduleLiveReconnect() {
-  if(
-    !state.wantLive ||
-    !state.auth?.currentUser ||
-    state.liveReconnect
-  )return;
-
-  const delay=Math.min(
-    15000,
-    1000*Math.pow(2,Math.min(state.liveRetry++,4))
-  );
-
-  setLiveInfo(
-    `Koneksi terputus. Menyambung ulang dalam ${Math.ceil(delay/1000)} detik...`
-  );
-
-  state.liveReconnect=setTimeout(()=>{
-    state.liveReconnect=null;
-    connectMQTT();
-  },delay);
+function stopLive(manual=false){
+  state.wantLive=false;state.liveGeneration++;clearTimeout(state.liveReconnect);state.liveReconnect=null;
+  const s=state.liveSocket;state.liveSocket=null;if(s){try{s.close();}catch{}}
+  state.mqttOnline=false;state.mqttLast=null;applyLive();
+  if(manual)$('mqtt-info').textContent='MQTT diputuskan';
 }
-
-async function connectMQTT() {
-  if(!state.auth?.currentUser)return;
-
-  state.wantLive=true;
-  clearTimeout(state.liveReconnect);
-  state.liveReconnect=null;
-
+function scheduleReconnect(){
+  if(!state.wantLive||!state.loggedIn||state.liveReconnect)return;
+  const wait=Math.min(15000,1000*Math.pow(2,Math.min(state.liveRetry++,4)));
+  $('mqtt-info').textContent=`Menyambung ulang dalam ${Math.round(wait/1000)} detik...`;
+  state.liveReconnect=setTimeout(()=>{state.liveReconnect=null;startLive();},wait);
+}
+function startLive(){
+  if(!state.loggedIn)return;
+  stopLive();state.wantLive=true;
   const attempt=++state.liveGeneration;
-
-  const prev=state.liveSocket;
-  state.liveSocket=null;
-
-  if(prev) {
-    try {
-      prev.close(1000,'Reconnect');
-    }catch(e) {
-      console.warn(e);
-    }
-  }
-
-  updateLiveStatus(
-    false,
-    'Memverifikasi sesi website...'
-  );
-
-  try {
-    const firebaseIdToken=
-      await state.auth.currentUser.getIdToken();
-
-    if(
-      attempt!==state.liveGeneration ||
-      !state.wantLive
-    )return;
-
-    const scheme=location.protocol==='https:'
-      ? 'wss:'
-      : 'ws:';
-
-    const socket=new WebSocket(
-      `${scheme}//${location.host}/api/live`
-    );
-
-    state.liveSocket=socket;
-
-    socket.addEventListener('open',()=>{
-      if(state.liveSocket!==socket)return;
-
-      socket.send(JSON.stringify({
-        type:'auth',
-        token:firebaseIdToken
-      }));
-
-      setLiveInfo(
-        'Menunggu koneksi Vercel → EMQX...'
-      );
-    });
-
-    socket.addEventListener('message',event=>{
-      if(state.liveSocket!==socket)return;
-
-      let msg;
-
-      try {
-        msg=JSON.parse(event.data);
-      }catch(e) {
-        return;
-      }
-
-      if(msg.type==='status') {
-        updateLiveStatus(
-          msg.connected,
-          msg.detail || (
-            msg.connected
-              ? 'MQTT terhubung.'
-              : 'MQTT belum terhubung.'
-          )
-        );
-
-        if(msg.connected)state.liveRetry=0;
-      }
-
-      else if(
-        msg.type==='reading' &&
-        validReading(msg.data)
-      ) {
-        if(
-          msg.data.device_id &&
-          msg.data.device_id!==DEVICE_ID
-        )return;
-
-        state.mqttLast=cleanRow(
-          msg.data,'MQTT'
-        );
-
-        // BARU: Masukkan pesan MQTT ke grafik Live.
-        rememberLiveReading(state.mqttLast);
-        applyLive();
-      }
-
-      else if(msg.type==='error') {
-        updateLiveStatus(
-          false,
-          msg.message || 'Gagal terhubung.'
-        );
-
-        if(msg.fatal) {
-          state.wantLive=false;
-
-          toast(
-            'MQTT: '+(
-              msg.message ||
-              'Konfigurasi server gagal.'
-            ),
-            true
-          );
-
-          socket.close();
-        }
-      }
-    });
-
-    socket.addEventListener('error',()=>{
-      if(state.liveSocket===socket) {
-        updateLiveStatus(
-          false,
-          'WebSocket Vercel gagal. Periksa Deployment Logs.'
-        );
-      }
-    });
-
-    socket.addEventListener('close',()=>{
-      if(state.liveSocket!==socket)return;
-
-      state.liveSocket=null;
-      updateLiveStatus(false);
-      scheduleLiveReconnect();
-    });
-
-  }catch(error) {
-    if(attempt!==state.liveGeneration)return;
-
-    updateLiveStatus(
-      false,
-      'Gagal membuka sesi: '+error.message
-    );
-
-    scheduleLiveReconnect();
-  }
+  try{
+    const ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/live`);
+    state.liveSocket=ws;$('mqtt-info').textContent='Menyambungkan EMQX...';
+    ws.onmessage=event=>{
+      if(state.liveSocket!==ws||attempt!==state.liveGeneration)return;
+      try{const m=JSON.parse(event.data);
+        if(m.type==='status'){state.mqttOnline=Boolean(m.connected);$('mqtt-info').textContent=m.detail||'Menghubungkan...';if(m.connected)state.liveRetry=0;applyLive();drawLive();}
+        else if(m.type==='reading')rememberLive(m.data);
+        else if(m.type==='error'){$('mqtt-info').textContent=m.message||'MQTT gagal';if(m.fatal){state.wantLive=false;note('MQTT: '+m.message,true);ws.close();}}
+      }catch{}
+    };
+    ws.onerror=()=>{if(state.liveSocket===ws)$('mqtt-info').textContent='WebSocket gagal. Periksa Vercel Logs.';};
+    ws.onclose=()=>{if(state.liveSocket!==ws)return;state.liveSocket=null;state.mqttOnline=false;applyLive();drawLive();scheduleReconnect();};
+  }catch(e){$('mqtt-info').textContent=e.message;scheduleReconnect();}
 }
-
-// SAAT LOGIN BERHASIL
-async function startAfterLogin(user) {
-  $('login-overlay').classList.add('hidden');
-  $('user-email').textContent='Dashboard';
-
-  subscribeLatest();
-
-  // MQTT tetap otomatis setelah login.
-  connectMQTT();
-
-  if(!state.chartDashboard) {
-    state.chartDashboard=makeChart(
-      $('sensor-chart')
-    );
-  }
-
-  if(!state.chartHistory) {
-    state.chartHistory=makeChart(
-      $('history-chart')
-    );
-  }
-
-  renderLiveCharts();
-  await refreshDashboard();
+async function openDashboard(){
+  state.loggedIn=true;$('login-overlay').classList.add('hidden');$('user-email').textContent='Dashboard';
+  if(!state.chartDashboard)state.chartDashboard=createChart($('sensor-chart'));
+  if(!state.chartHistory)state.chartHistory=createChart($('history-chart'));
+  startLive();await Promise.all([refreshLatest(),refreshDashboard()]);
 }
-
-// SAAT LOGOUT
-function stopAfterLogout() {
-  disconnectMQTT(false);
-
-  if(state.unsubLatest) {
-    state.unsubLatest();
-    state.unsubLatest=null;
-  }
-
-  state.latest=null;
-  state.firebaseOnline=false;
-  state.historyRows=[];
-  state.dashboardRows=[];
-  state.liveRows=[];
-
-  $('login-overlay').classList.remove('hidden');
-  updateConnectivity();
+function closeDashboard(){
+  stopLive();state.loggedIn=false;state.latest=null;state.firebaseOnline=false;state.liveRows=[];state.historyRows=[];
+  $('login-overlay').classList.remove('hidden');applyLive();
 }
-
-// EVENT BUTTON
-function setupUI() {
-  document.querySelectorAll('.nav-item').forEach(
-    b=>b.addEventListener(
-      'click',
-      ()=>navigate(b.dataset.page)
-    )
-  );
-
-  document.querySelectorAll('[data-jump]').forEach(
-    b=>b.addEventListener(
-      'click',
-      ()=>navigate(b.dataset.jump)
-    )
-  );
-
-  // BARU: Menangani pilihan Live, 1h, 6h, 24h, 30d.
-  document.querySelectorAll('[data-periods]').forEach(
-    group=>group.querySelectorAll('button').forEach(
-      b=>b.addEventListener('click',()=>{
-        group.querySelectorAll('button').forEach(
-          el=>el.classList.toggle('active',el===b)
-        );
-
-        if(group.dataset.periods==='dashboard') {
-          state.dashboardPeriod=b.dataset.period;
-          refreshDashboard();
-        }else {
-          state.historyPeriod=b.dataset.period;
-          refreshHistory();
-        }
-      })
-    )
-  );
-
-  $('refresh-history').addEventListener(
-    'click',refreshHistory
-  );
-
-  $('prev-page').addEventListener('click',()=>{
-    if(state.historyPage>0) {
-      state.historyPage--;
-      renderHistoryTable();
-    }
-  });
-
-  $('next-page').addEventListener('click',()=>{
-    if(
-      (state.historyPage+1)*PER_PAGE <
-      state.historyRows.length
-    ) {
-      state.historyPage++;
-      renderHistoryTable();
-    }
-  });
-
-  $('export-period').addEventListener('click',()=>{
-    if(!state.historyRows.length) {
-      return toast(
-        'Tidak ada data untuk diekspor.',
-        true
-      );
-    }
-
-    downloadCSV(
-      `AnggrekSense_${state.historyLogPeriod}_${new Date().toISOString().slice(0,10)}.csv`,
-      rowsToCSV(state.historyRows)
-    );
-  });
-
-  $('backup-month').addEventListener(
-    'click',backupMonth
-  );
-
-  $('cleanup-month').addEventListener(
-    'click',cleanupMonth
-  );
-
-  $('archive-month').value=
-    new Date().toISOString().slice(0,7);
-
-  $('archive-month').addEventListener('change',()=>{
-    state.backupMonth='';
-    $('archive-info').textContent=
-      'Bulan berubah. Silakan backup lagi sebelum penghapusan.';
-  });
-
-  $('mqtt-connect').addEventListener(
-    'click',()=>connectMQTT()
-  );
-
-  $('mqtt-disconnect').addEventListener(
-    'click',()=>disconnectMQTT()
-  );
-
-  $('logout').addEventListener(
-    'click',
-    ()=>state.auth && signOut(state.auth)
-  );
-
-  $('status-id').textContent=DEVICE_ID;
-  $('aside-device').textContent=DEVICE_ID;
-
-  function clock() {
-    $('clock').textContent=
-      formatTime(Date.now(),true);
-
-    if(state.auth?.currentUser) {
-      applyLive();
-
-      // Geser jendela grafik Live mengikuti waktu.
-      if(
-        state.dashboardPeriod==='live' ||
-        state.historyPeriod==='live'
-      ) {
-        renderLiveCharts();
-      }
-    }
-  }
-
-  clock();
-  setInterval(clock,15000);
-
-  setInterval(()=>{
-    if(state.auth?.currentUser) {
-      if(state.page==='dashboard') {
-        refreshDashboard();
-      }else if(state.page==='history') {
-        refreshHistory();
-      }
-    }
-  },60000);
+function setup(){
+  document.querySelectorAll('.nav-item').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
+  document.querySelectorAll('[data-jump]').forEach(b=>b.onclick=()=>navigate(b.dataset.jump));
+  document.querySelectorAll('[data-periods]').forEach(group=>group.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    group.querySelectorAll('button').forEach(el=>el.classList.toggle('active',el===b));
+    if(group.dataset.periods==='dashboard'){state.dashboardPeriod=b.dataset.period;refreshDashboard();}
+    else{state.historyPeriod=b.dataset.period;refreshHistory();}
+  }));
+  $('refresh-history').onclick=refreshHistory;
+  $('prev-page').onclick=()=>{if(state.historyPage>0){state.historyPage--;renderHistoryTable();}};
+  $('next-page').onclick=()=>{if((state.historyPage+1)*PER_PAGE<state.historyRows.length){state.historyPage++;renderHistoryTable();}};
+  $('export-period').onclick=()=>{if(!state.historyRows.length)return note('Tidak ada data untuk diekspor.',true);downloadCSV(`AnggrekSense_${state.historyLogPeriod}.csv`,csvRows(state.historyRows));};
+  $('backup-month').onclick=backupMonth;$('archive-month').value=new Date().toISOString().slice(0,7);
+  $('mqtt-connect').onclick=startLive;$('mqtt-disconnect').onclick=()=>stopLive(true);
+  $('logout').onclick=async()=>{try{await api('/api/session',{method:'DELETE'});}catch{}closeDashboard();};
+  $('status-id').textContent=DEVICE_ID;$('aside-device').textContent=DEVICE_ID;
+  function tick(){$('clock').textContent=tformat(Date.now(),true);if(state.loggedIn){applyLive();drawLive();}}
+  tick();setInterval(tick,15000);
+  setInterval(()=>{if(!state.loggedIn)return;refreshLatest();if(state.page==='dashboard')refreshDashboard();if(state.page==='history')refreshHistory();},60000);
+  $('login-form').onsubmit=async e=>{
+    e.preventDefault();$('login-error').textContent='';const button=$('login-form').querySelector('button');button.disabled=true;
+    try{await api('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('login-password').value})});$('login-password').value='';await openDashboard();}
+    catch(error){$('login-error').textContent=error.message;}finally{button.disabled=false;}
+  };
+  api('/api/session').then(d=>{if(d.authenticated)openDashboard();}).catch(()=>{});
 }
-
-// LOGIN UTAMA WEBSITE
-function main() {
-  setupUI();
-
-  if(
-    Object.values(FIREBASE_CONFIG).some(
-      s=>!s || String(s).includes('GANTI_')
-    )
-  ) {
-    $('login-error').textContent=
-      'Isi config.js dengan konfigurasi Firebase asli.';
-    return;
-  }
-
-  const app=initializeApp(FIREBASE_CONFIG);
-
-  state.auth=getAuth(app);
-  state.db=getDatabase(app);
-
-  $('login-form').addEventListener(
-    'submit',
-    async e=>{
-      e.preventDefault();
-      $('login-error').textContent='';
-
-      const button=$('login-form')
-        .querySelector('button[type="submit"]');
-
-      button.disabled=true;
-
-      try {
-        const response=await fetch('/api/login',{
-          method:'POST',
-          headers:{
-            'Content-Type':'application/json'
-          },
-          cache:'no-store',
-          body:JSON.stringify({
-            password:$('login-password').value
-          })
-        });
-
-        const result=await response.json();
-
-        if(!response.ok) {
-          throw new Error(
-            result.error || 'Login gagal'
-          );
-        }
-
-        await signInWithCustomToken(
-          state.auth,result.token
-        );
-
-        $('login-password').value='';
-
-      }catch(err) {
-        $('login-error').textContent=
-          err.message ||
-          'Gagal masuk. Periksa pengaturan Vercel.';
-      }finally {
-        button.disabled=false;
-      }
-    }
-  );
-
-  onAuthStateChanged(state.auth,user=>{
-    if(user) {
-      startAfterLogin(user).catch(
-        err=>toast(
-          'Dashboard gagal memuat: '+err.message,
-          true
-        )
-      );
-    }else {
-      stopAfterLogout();
-    }
-  });
-}
-
-main();
+setup();
