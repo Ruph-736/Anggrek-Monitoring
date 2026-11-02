@@ -4,7 +4,7 @@ const $=id=>document.getElementById(id);
 const WIB=new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Jakarta',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
 const SHORT=new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Jakarta',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
 const PERIODS={'1h':3600000,'6h':21600000,'24h':86400000,'30d':2592000000,live:900000};
-const state={loggedIn:false,page:'dashboard',dashboardPeriod:'live',historyPeriod:'24h',historyLogPeriod:'24h',latest:null,mqttLast:null,mqttOnline:false,firebaseOnline:false,liveRows:[],dashboardRows:[],historyRows:[],historyPage:0,chartDashboard:null,chartHistory:null,liveSocket:null,liveReconnect:null,wantLive:false,liveGeneration:0,liveRetry:0};
+const state={loggedIn:false,page:'dashboard',dashboardPeriod:'live',historyPeriod:'24h',historyLogPeriod:'24h',latest:null,mqttLast:null,mqttOnline:false,firebaseOnline:false,liveRows:[],dashboardRows:[],historyRows:[],historyPage:0,historyNextCursor:null,historyPageCursors:[null],historyRequestId:0,historyLoadedPeriod:'',historyChartAt:0,dashboardChartAt:0,exportBusy:false,chartDashboard:null,chartHistory:null,liveSocket:null,liveReconnect:null,wantLive:false,liveGeneration:0,liveRetry:0};
 const PER_PAGE=50;
 const tformat=(ts,short=false)=>Number.isFinite(Number(ts))&&Number(ts)>0?(short?SHORT:WIB).format(Number(ts)):'—';
 const num=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'--';
@@ -30,7 +30,7 @@ function createChart(canvas){
   });
 }
 function chartPoints(rows,key,period){
-  const gap=period==='live'?5000:period==='30d'?3600000:60000;
+  const gap=period==='live'?5000:period==='30d'?2100000:60000;
   const out=[];
   rows.forEach((r,i)=>{if(i&&r.ts-rows[i-1].ts>gap*2.8)out.push({x:Math.round((r.ts+rows[i-1].ts)/2),y:null});out.push({x:r.ts,y:r[key]});});
   return out;
@@ -47,12 +47,19 @@ function renderRows(target,rows,history=false,page=0){
   target.innerHTML=list.map((r,i)=>`<tr>${history?`<td>${page*limit+i+1}</td>`:''}<td>${tformat(r.ts)}</td><td>${num(r.temperature_c)}</td><td>${num(r.humidity_percent)}</td><td>${r.kind||'Log'}</td></tr>`).join('');
 }
 function renderHistoryTable(){
-  const pages=Math.max(1,Math.ceil(state.historyRows.length/PER_PAGE));state.historyPage=Math.min(state.historyPage,pages-1);
-  renderRows($('history-rows'),state.historyRows,true,state.historyPage);
-  $('log-count').textContent=`${state.historyRows.length.toLocaleString('id-ID')} pengukuran`;
-  $('page-count').textContent=`Halaman ${state.historyPage+1} dari ${pages}`;
-  $('prev-page').disabled=state.historyPage===0;$('next-page').disabled=state.historyPage===pages-1;
+  const rows=state.historyRows;
+  const target=$('history-rows');
+  if(!rows.length){
+    target.innerHTML='<tr><td colspan="5" class="empty-cell">Belum ada log asli untuk halaman ini.</td></tr>';
+  }else{
+    target.innerHTML=rows.map((r,i)=>`<tr><td>${state.historyPage*PER_PAGE+i+1}</td><td>${tformat(r.ts)}</td><td>${num(r.temperature_c)}</td><td>${num(r.humidity_percent)}</td><td>Log asli</td></tr>`).join('');
+  }
+  $('log-count').textContent=`${rows.length} pengukuran asli pada halaman ini • lengkap sampai detik (WIB)`;
+  $('page-count').textContent=`Halaman ${state.historyPage+1}`;
+  $('prev-page').disabled=state.historyPage===0;
+  $('next-page').disabled=state.historyNextCursor===null;
 }
+
 function drawLive(){
   const now=Date.now();state.liveRows=state.liveRows.filter(r=>r.ts>=now-PERIODS.live&&r.ts<=now+30000).slice(-400);
   const msg=state.mqttOnline?`${state.liveRows.length} titik • Live 15 menit terakhir`:`MQTT OFF • ${state.liveRows.length} titik sementara`;
@@ -78,7 +85,7 @@ function applyLive(){
   $('last-time').textContent=data?'Terakhir: '+tformat(data.ts):'Belum ada data';$('system-updated').textContent=data?tformat(data.ts):'—';
   $('data-source').textContent=mqttFresh?'LIVE • EMQX MQTT':'FIREBASE • DATABASE';
   $('mqtt-status').textContent=state.mqttOnline?'MQTT: LIVE':'MQTT: OFF';$('mqtt-status').classList.toggle('on',state.mqttOnline);
-  $('firebase-status').textContent=state.firebaseOnline?'Firebase: Terhubung':'Firebase: Belum terhubung';
+  $('firebase-status').textContent=state.firebaseOnline?'Firebase: Dapat dibaca':'Firebase: Belum dapat dibaca';
 }
 async function refreshLatest(){
   if(!state.loggedIn)return;
@@ -87,33 +94,66 @@ async function refreshLatest(){
 }
 async function refreshDashboard(){
   if(!state.loggedIn)return;
-  const period=state.dashboardPeriod;const fetchPeriod=period==='live'?'1h':period;
+  const period=state.dashboardPeriod;
+  const fetchPeriod=period==='live'?'1h':period;
   if(period==='live')drawLive();
-  try{const response=await api(`/api/data?type=range&period=${fetchPeriod}`);
+  // Membaca seluruh 30 hari dari Firebase mahal; jangan polling setiap menit.
+  if(period==='30d'&&state.dashboardChartAt&&Date.now()-state.dashboardChartAt<3600000)return;
+  try{
+    const response=await api(`/api/data?type=range&period=${fetchPeriod}`);
     if(state.dashboardPeriod!==period)return;
-    const rows=(response.rows||[]).filter(isReading).map(r=>readRow(r,fetchPeriod==='30d'?'Rata-rata/jam':'Log'));
+    const rows=(response.rows||[]).filter(isReading).map(r=>readRow(r,'Log asli'));
     state.dashboardRows=rows;renderRows($('recent-rows'),rows);
-    if(period!=='live'){draw(state.chartDashboard,rows,period);$('chart-info').textContent=`${rows.length} titik • Firebase`;}state.firebaseOnline=true;applyLive();
+    if(period!=='live'){
+      draw(state.chartDashboard,rows,period);
+      $('chart-info').textContent=`${rows.length} titik pengukuran asli • tanpa rata-rata`+
+        (response.sampled?' (dipilih untuk mempercepat grafik)':'');
+    }
+    if(period==='30d')state.dashboardChartAt=Date.now();
+    state.firebaseOnline=true;applyLive();
   }catch(e){note('Gagal memuat grafik: '+e.message,true);state.firebaseOnline=false;applyLive();}
 }
-async function refreshHistory(){
+async function refreshHistory(reset=false){
   if(!state.loggedIn)return;
   const period=state.historyPeriod;
-  if(period==='live'){drawLive();return;}
-  try{const response=await api(`/api/data?type=range&period=${period}`);
-    if(state.historyPeriod!==period)return;
-    state.historyRows=(response.rows||[]).filter(isReading).map(r=>readRow(r,period==='30d'?'Rata-rata/jam':'Log'));
-    state.historyLogPeriod=period;state.historyPage=0;draw(state.chartHistory,state.historyRows,period);
-    $('history-chart-info').textContent=`${state.historyRows.length} titik • Firebase`;renderHistoryTable();state.firebaseOnline=true;applyLive();
-  }catch(e){note('Gagal membaca riwayat: '+e.message,true);state.firebaseOnline=false;applyLive();}
+  if(reset||state.historyLoadedPeriod!==period){
+    state.historyPage=0;state.historyPageCursors=[null];state.historyNextCursor=null;
+    state.historyLoadedPeriod=period;state.historyChartAt=0;
+  }
+  const requestId=++state.historyRequestId;
+  const before=state.historyPageCursors[state.historyPage];
+  try{
+    const periodForLogs=period==='live'?'1h':period;
+    const params=`type=history&period=${periodForLogs}`+(before===null?'':`&before=${before}`);
+    const chartIsFresh=period==='30d'&&state.historyChartAt&&Date.now()-state.historyChartAt<3600000;
+    const [pageResponse,chartResponse]=await Promise.all([
+      api('/api/data?'+params),
+      period==='live'||chartIsFresh?Promise.resolve(null):api(`/api/data?type=range&period=${period}`)
+    ]);
+    if(requestId!==state.historyRequestId||state.historyPeriod!==period)return;
+    state.historyRows=(pageResponse.rows||[]).filter(isReading).map(r=>readRow(r,'Log asli'));
+    state.historyNextCursor=pageResponse.nextCursor??null;
+    state.historyLogPeriod=period;
+    if(chartResponse){
+      const rows=(chartResponse.rows||[]).filter(isReading).map(r=>readRow(r,'Log asli'));
+      draw(state.chartHistory,rows,period);
+      $('history-chart-info').textContent=`${rows.length} titik asli dari Firebase, tanpa rata-rata`+
+        (chartResponse.sampled?' • sebagian titik ditampilkan agar grafik ringan':'');
+      if(period==='30d')state.historyChartAt=Date.now();
+    }else if(period==='live')drawLive();
+    renderHistoryTable();state.firebaseOnline=true;applyLive();
+  }catch(e){
+    if(requestId===state.historyRequestId){note('Gagal membaca riwayat: '+e.message,true);state.firebaseOnline=false;applyLive();}
+  }
 }
+
 function navigate(page){
   state.page=page;document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.id===`page-${page}`));
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
   const titles={dashboard:['Dashboard','Monitoring Dashboard'],history:['Riwayat Data','Riwayat Pengukuran'],device:['Perangkat','Informasi Perangkat'],storage:['Penyimpanan','Backup & Penyimpanan']};
   $('breadcrumb-title').textContent=titles[page][0];$('top-title').textContent=titles[page][1];
   if(page==='dashboard'){refreshDashboard();setTimeout(()=>state.chartDashboard?.resize(),50);}
-  if(page==='history'){refreshHistory();setTimeout(()=>state.chartHistory?.resize(),50);}
+  if(page==='history'){refreshHistory(true);setTimeout(()=>state.chartHistory?.resize(),50);}
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function downloadCSV(name,rows){
@@ -121,7 +161,35 @@ function downloadCSV(name,rows){
   const content='\uFEFF'+rows.map(r=>r.map(esc).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
-function csvRows(rows){return[['jenis','waktu_wib','timestamp_ms','temperature_c','humidity_percent','jumlah_sampel'],...rows.map(r=>[r.kind||'Log',tformat(r.ts),r.ts,r.temperature_c,r.humidity_percent,r.count||''])];}
+// Timestamp lengkap yang mudah dibaca dan diurutkan di Excel: YYYY-MM-DD HH:mm:ss WIB.
+function timestampWIB(ts){return new Date(Number(ts)+7*3600000).toISOString().slice(0,19).replace('T',' ');}
+function csvRows(rows){
+  return [['waktu_wib','timestamp_unix_ms','suhu_c','kelembapan_persen','sumber'],
+    ...rows.map(r=>[timestampWIB(r.ts),r.ts,r.temperature_c,r.humidity_percent,'Firebase log asli'])];
+}
+async function exportPeriod(){
+  if(!state.loggedIn||state.exportBusy)return;
+  state.exportBusy=true;
+  const button=$('export-period');button.disabled=true;
+  const period=state.historyPeriod;
+  const to=Date.now(),from=to-PERIODS[period];
+  let after=null,all=[],parts=0;
+  try{
+    do{
+      const url=`/api/data?type=export&from=${from}&to=${to}`+(after===null?'':`&after=${after}`);
+      const result=await api(url);
+      all.push(...(result.rows||[]).filter(isReading).map(r=>readRow(r,'Log asli')));
+      after=result.nextCursor??null;parts++;
+      button.textContent=`Mengunduh... ${all.length.toLocaleString('id-ID')} baris`;
+      if(parts>1000)throw new Error('Terlalu banyak halaman data');
+    }while(after!==null);
+    if(!all.length){note('Tidak ada log Firebase asli pada periode ini.',true);return;}
+    downloadCSV(`AnggrekSense_Log_Asli_${period}_${timestampWIB(to).slice(0,10)}.csv`,csvRows(all));
+    note(`CSV berhasil dibuat: ${all.length.toLocaleString('id-ID')} pengukuran asli, lengkap tanggal dan waktu WIB.`);
+  }catch(e){note('Gagal mengunduh riwayat: '+e.message,true);}
+  finally{button.disabled=false;button.textContent='↓ Unduh CSV Periode';state.exportBusy=false;}
+}
+
 async function backupMonth(){
   const month=$('archive-month').value.replace('-','');
   if(!/^20\d{4}$/.test(month))return note('Pilih bulan terlebih dahulu',true);
@@ -131,12 +199,12 @@ async function backupMonth(){
     for(let part=0;part<6;part++){
       $('archive-info').textContent=`Mengambil log Firebase ${part+1}/6 bagian...`;
       const result=await api(`/api/data?type=month&month=${month}&part=${part}`);
-      all.push(...(result.rows||[]).filter(isReading).map(r=>readRow(r,r.kind||'Log')));
+      all.push(...(result.rows||[]).filter(isReading).map(r=>readRow(r,'Log asli')));
     }
     if(!all.length){$('archive-info').textContent='Bulan ini belum ada data';return;}
     all.sort((a,b)=>a.ts-b.ts);
     downloadCSV(`AnggrekSense_Backup_${month}.csv`,csvRows(all));
-    $('archive-info').textContent=`Backup ${month}: ${all.length} baris. Data Firebase tidak dihapus.`;
+    $('archive-info').textContent=`Backup ${month}: ${all.length} log asli dengan timeline WIB lengkap. Data Firebase tidak dihapus.`;
   }catch(e){$('archive-info').textContent='Backup gagal: '+e.message;}
   finally{button.disabled=false;}
 }
@@ -187,13 +255,13 @@ function setup(){
   document.querySelectorAll('[data-periods]').forEach(group=>group.querySelectorAll('button').forEach(b=>b.onclick=()=>{
     group.querySelectorAll('button').forEach(el=>el.classList.toggle('active',el===b));
     if(group.dataset.periods==='dashboard'){state.dashboardPeriod=b.dataset.period;refreshDashboard();}
-    else{state.historyPeriod=b.dataset.period;refreshHistory();}
+    else{state.historyPeriod=b.dataset.period;refreshHistory(true);}
   }));
-  $('refresh-history').onclick=refreshHistory;
-  $('prev-page').onclick=()=>{if(state.historyPage>0){state.historyPage--;renderHistoryTable();}};
-  $('next-page').onclick=()=>{if((state.historyPage+1)*PER_PAGE<state.historyRows.length){state.historyPage++;renderHistoryTable();}};
-  $('export-period').onclick=()=>{if(!state.historyRows.length)return note('Tidak ada data untuk diekspor.',true);downloadCSV(`AnggrekSense_${state.historyLogPeriod}.csv`,csvRows(state.historyRows));};
-  $('backup-month').onclick=backupMonth;$('archive-month').value=new Date().toISOString().slice(0,7);
+  $('refresh-history').onclick=()=>refreshHistory(true);
+  $('prev-page').onclick=()=>{if(state.historyPage>0){state.historyPage--;refreshHistory();}};
+  $('next-page').onclick=()=>{if(state.historyNextCursor!==null){state.historyPageCursors[state.historyPage+1]=state.historyNextCursor;state.historyPage++;refreshHistory();}};
+  $('export-period').onclick=exportPeriod;
+  $('backup-month').onclick=backupMonth;$('archive-month').value=timestampWIB(Date.now()).slice(0,7);
   $('mqtt-connect').onclick=startLive;$('mqtt-disconnect').onclick=()=>stopLive(true);
   $('logout').onclick=async()=>{try{await api('/api/session',{method:'DELETE'});}catch{}closeDashboard();};
   $('status-id').textContent=DEVICE_ID;$('aside-device').textContent=DEVICE_ID;
