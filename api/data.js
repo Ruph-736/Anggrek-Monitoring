@@ -2,7 +2,7 @@
 import {requireSession} from '../lib/session.js';
 import {database,BASE,monthsInRange} from '../lib/firebase.js';
 
-const DURATIONS={'1h':3600000,'6h':21600000,'24h':86400000,'30d':2592000000};
+const DURATIONS={'1h':3600000,'6h':21600000,'24h':86400000,'7d':604800000,'30d':2592000000};
 const HISTORY_SIZE=50;
 const EXPORT_SIZE=1000;
 const MAX_CHART_POINTS=1800;
@@ -109,7 +109,7 @@ export default async function handler(req,res){
     }
     if(type==='range'){
       const all=await readAll(db,from,to);
-      const rows=period==='30d'?selectChartPoints(all,MAX_CHART_POINTS):all;
+      const rows=(period==='30d'||period==='7d')?selectChartPoints(all,MAX_CHART_POINTS):all;
       return res.status(200).json({period,rows,rawCount:all.length,sampled:rows.length<all.length});
     }
     return res.status(400).json({error:'Jenis permintaan tidak valid'});
