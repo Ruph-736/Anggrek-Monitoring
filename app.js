@@ -226,6 +226,77 @@ async function backupMonth(){
   }catch(e){$('archive-info').textContent='Backup gagal: '+e.message;}
   finally{button.disabled=false;}
 }
+
+// DIUBAH: Pengingat backup di website, mulai H-3 pergantian bulan (WIB).
+// Pop-up muncul sekali sehari pada H-3, H-2, H-1 selama dashboard dibuka.
+const reminderDismissed=new Set();
+function reminderDateWIB(nowMs=Date.now()){
+  const date=new Date(nowMs+7*3600000);
+  const year=date.getUTCFullYear(),month=date.getUTCMonth(),day=date.getUTCDate();
+  const lastDate=new Date(Date.UTC(year,month+1,0)).getUTCDate();
+  const daysUntilNextMonth=lastDate-day+1;
+  if(daysUntilNextMonth<1||daysUntilNextMonth>3)return null;
+  return {
+    dateKey:`${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,
+    monthKey:`${year}-${String(month+1).padStart(2,'0')}`,
+    lastDate,
+    daysUntilNextMonth
+  };
+}
+function checkBackupReminder(){
+  if(!state.loggedIn)return;
+  const info=reminderDateWIB();
+  if(!info||document.getElementById('anggreksense-backup-reminder'))return;
+  const key=`anggreksense_backup_h3_${info.dateKey}`;
+  if(reminderDismissed.has(key))return;
+  try{if(localStorage.getItem(key)==='1')return;}catch{}
+
+  if(!document.getElementById('anggreksense-backup-reminder-style')){
+    const style=document.createElement('style');
+    style.id='anggreksense-backup-reminder-style';
+    style.textContent=`
+      .as-backup-overlay{position:fixed;inset:0;z-index:1000;background:rgba(9,23,42,.64);display:flex;align-items:center;justify-content:center;padding:16px}
+      .as-backup-modal{background:#fff;color:#14253d;border-radius:17px;padding:25px;width:min(440px,100%);box-shadow:0 16px 65px rgba(4,17,42,.22);font-family:Inter,system-ui,sans-serif}
+      .as-backup-modal h3{font-size:19px;margin:0 0 10px;letter-spacing:-.3px}
+      .as-backup-modal p{font-size:13px;color:#526780;line-height:1.7;margin:0 0 12px}
+      .as-backup-modal .as-backup-tag{display:inline-block;color:#1168cc;background:#edf5ff;border-radius:999px;font-size:11px;font-weight:800;padding:6px 10px;margin-bottom:14px}
+      .as-backup-modal .as-backup-warning{background:#f2f7fd;border-radius:9px;padding:10px 12px;font-size:11px;line-height:1.6;color:#516983;margin-bottom:18px}
+      .as-backup-actions{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap}
+      .as-backup-actions button{padding:11px 14px;border-radius:9px;font:700 12px Inter,system-ui,sans-serif;cursor:pointer}
+      .as-backup-later{background:white;color:#49647f;border:1px solid #dce6f3}
+      .as-backup-open{background:#176cf0;color:white;border:1px solid #176cf0}
+    `;
+    document.head.appendChild(style);
+  }
+
+  const overlay=document.createElement('div');
+  overlay.id='anggreksense-backup-reminder';
+  overlay.className='as-backup-overlay';
+  overlay.innerHTML=`<section class="as-backup-modal" role="dialog" aria-modal="true" aria-labelledby="as-backup-title">
+    <span class="as-backup-tag">Pengingat backup · H-${info.daysUntilNextMonth}</span>
+    <h3 id="as-backup-title">Backup data AnggrekSense</h3>
+    <p>Dalam <strong>${info.daysUntilNextMonth} hari</strong> bulan akan berganti. Sebaiknya unduh data sensor asli Firebase sebagai CSV sebelum tanggal ${info.lastDate} berakhir.</p>
+    <div class="as-backup-warning">Backup sekarang berisi log <strong>sampai waktu unduh</strong>. Untuk arsip satu bulan yang benar-benar lengkap, unduh ulang setelah bulan berganti. Tidak ada data Firebase yang dihapus.</div>
+    <div class="as-backup-actions"><button class="as-backup-later" type="button">Nanti</button><button class="as-backup-open" type="button">Buka Backup Bulanan</button></div>
+  </section>`;
+  document.body.appendChild(overlay);
+  function dismiss(){
+    reminderDismissed.add(key);
+    try{localStorage.setItem(key,'1');}catch{}
+    overlay.remove();
+    document.removeEventListener('keydown',onKey);
+  }
+  function onKey(event){if(event.key==='Escape')dismiss();}
+  overlay.querySelector('.as-backup-later').onclick=dismiss;
+  overlay.querySelector('.as-backup-open').onclick=()=>{
+    $('archive-month').value=info.monthKey;
+    dismiss();
+    navigate('storage');
+  };
+  document.addEventListener('keydown',onKey);
+  overlay.querySelector('.as-backup-open').focus();
+}
+
 function stopLive(manual=false){
   state.wantLive=false;state.liveGeneration++;clearTimeout(state.liveReconnect);state.liveReconnect=null;
   const s=state.liveSocket;state.liveSocket=null;if(s){try{s.close();}catch{}}
@@ -261,7 +332,7 @@ async function openDashboard(){
   state.loggedIn=true;$('login-overlay').classList.add('hidden');$('user-email').textContent='Dashboard';
   if(!state.chartDashboard)state.chartDashboard=createChart($('sensor-chart'));
   if(!state.chartHistory)state.chartHistory=createChart($('history-chart'));
-  startLive();await Promise.all([refreshLatest(),refreshDashboard()]);
+  startLive();checkBackupReminder();await Promise.all([refreshLatest(),refreshDashboard()]);
 }
 function closeDashboard(){
   stopLive();state.loggedIn=false;state.latest=null;state.firebaseOnline=false;state.liveRows=[];state.historyRows=[];
@@ -292,6 +363,8 @@ function setup(){
   $('status-id').textContent=DEVICE_ID;$('aside-device').textContent=DEVICE_ID;
   function tick(){$('clock').textContent=tformat(Date.now(),true);if(state.loggedIn){applyLive();drawLive();}}
   tick();setInterval(tick,15000);
+  // DIUBAH: tetap periksa H-3 bila halaman dibiarkan terbuka lintas hari.
+  setInterval(checkBackupReminder,3600000);
   setInterval(()=>{if(!state.loggedIn)return;refreshLatest();if(state.page==='dashboard')refreshDashboard();if(state.page==='history')refreshHistory();},60000);
   $('login-form').onsubmit=async e=>{
     e.preventDefault();$('login-error').textContent='';const button=$('login-form').querySelector('button');button.disabled=true;
